@@ -34,7 +34,7 @@ df = pd.read_excel('map.xlsx')
 router = Router()
 
 # ID чата техподдержки (замените на реальный)
-SUPPORT_CHAT_ID = -1002296401929
+SUPPORT_CHAT_ID =-1002837608854
 
 
 # Состояния для FSM

@@ -9,7 +9,7 @@ from aiogram.filters import StateFilter
 import re
 
 # ID чата для получения заявок
-PARTNER_CHAT_ID = -1002314519913  # Замените на реальный ID
+PARTNER_CHAT_ID =-1002837608854  # Замените на реальный ID
 LOGGING_CHAT_ID = 521620770  # Новый ID для логирования
 YANDEX_API_KEY = "7df099aa-c180-4c44-b0cd-258a05bdc8f2"
 # Создаем роутер для обработки заявок партнёров
