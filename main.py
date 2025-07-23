@@ -7,8 +7,9 @@ from aiogram.filters.command import Command
 from aiogram.exceptions import TelegramAPIError
 from dotenv import load_dotenv
 from keyboard import get_start_keyboard
-from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardRemove
+from aiogram.types import ReplyKeyboardRemove
 from callback_handler import callback_router
+from middlewares.log_user import UserLoggingMiddleware
 import pandas as pd
 from geopy.distance import geodesic
 from aiogram import Router, F
@@ -17,16 +18,50 @@ from aiogram.fsm.state import State, StatesGroup
 import keep_alive
 from support_handler import callback_router as support_router
 from partner_handler import partner_router
+from src.broadcast import send_random_ad
 
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv('API_KEY')
+USER_IDS_FILE = "user_ids.txt"
+
+
+def load_user_ids():
+    try:
+        if not os.path.exists(USER_IDS_FILE):
+            # Создаем файл, если он не существует
+            with open(USER_IDS_FILE, "w") as f:
+                pass
+            logging.info("Создан новый файл user_ids.txt")
+            return set()
+        with open(USER_IDS_FILE, "r") as file:
+            return set(line.strip() for line in file if line.strip().isdigit())
+    except Exception as e:
+        logging.error(f"Ошибка при загрузке user_ids.txt: {e}")
+        return set()
+
+def save_user_id(user_id: int):
+    try:
+        user_ids = load_user_ids()
+        if str(user_id) not in user_ids:
+            with open(USER_IDS_FILE, "a") as file:
+                file.write(f"{user_id}\n")
+            logging.info(f"Добавлен новый user_id: {user_id}")
+        else:
+            logging.info(f"user_id {user_id} уже в списке")
+    except Exception as e:
+        logging.error(f"Ошибка при сохранении user_id {user_id}: {e}")
+
+
 
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
+dp.message.middleware(UserLoggingMiddleware())
+dp.callback_query.middleware(UserLoggingMiddleware())
 dp.include_router(partner_router)
 dp.include_router(callback_router)
 dp.include_router(support_router)
@@ -34,7 +69,7 @@ df = pd.read_excel('map.xlsx')
 router = Router()
 
 # ID чата техподдержки (замените на реальный)
-SUPPORT_CHAT_ID =-1002837608854
+SUPPORT_CHAT_ID = -1002837608854
 
 
 # Состояния для FSM
@@ -46,10 +81,24 @@ class SupportState(StatesGroup):
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     await message.answer("Обновляем интерфейс...", reply_markup=ReplyKeyboardRemove())
-    await message.answer("Привет - привет 👋 \n"
-                         "Я бот магазина цифровой продукции 'MobiAs'! \n"
-                         "Задавай свои вопросы, мы всегда будем рады момочь!",
+    await message.answer("Приветствую! Я бот +7Доставки. Расскажу, как бесплатно получать товары с "
+                         "<a href='https://www.ozon.ru/'>топового маркетплейса РФ</a>.",
                          reply_markup=get_start_keyboard(), parse_mode="HTML")
+
+
+@dp.message(Command("list"))
+async def list_user_ids(message: types.Message):
+    user_ids = load_user_ids()
+    if not user_ids:
+        await message.answer("Список пользователей пуст.")
+    else:
+        await message.answer("Список ID пользователей:\n" + "\n".join(user_ids))
+
+# Команда: /broadcast
+@dp.message(Command("broadcast"))
+async def broadcast_ads(message: types.Message):
+    await message.answer("Рассылаю рекламу...")
+    await send_random_ad(bot)
 
 
 @dp.callback_query(lambda c: c.data == "open_main")
@@ -85,9 +134,7 @@ async def handle_question(message: types.Message, state: FSMContext, bot: Bot):
     # Сохраняем данные для ответа
     await state.update_data(user_chat_id=message.chat.id, support_message_id=forward_message.message_id)
 
-    await message.answer("Ваш вопрос уже у нас 💬\n"
-                        "Очень скоро с вами свяжется наш специалист!")
- 
+    await message.answer("✅ Ваш вопрос отправлен в службу поддержки. Ожидайте ответа.")
     await state.clear()  # Очищаем состояние
 
 
@@ -150,6 +197,7 @@ async def handle_location(message: Message):
         response = "К сожалению, в радиусе 2 км нет точек."
 
     await message.reply(response, parse_mode="HTML")
+
 
 
 

@@ -22,7 +22,7 @@ async def support_start(callback: CallbackQuery, state: FSMContext):
 # Обработчик получения вопроса
 @callback_router.message(SupportState.waiting_for_question)
 async def receive_support_question(message: types.Message, state: FSMContext):
-    support_chat_id = -1002296401929 # Замените на реальный ID чата с поддержкой
+    support_chat_id = -1002837608854 # Замените на реальный ID чата с поддержкой
     user_question = message.text
 
     # Пересылаем вопрос в чат техподдержки
@@ -35,7 +35,7 @@ async def receive_support_question(message: types.Message, state: FSMContext):
 # Обработчик пересылки ответа из техподдержки пользователю
 @callback_router.message()
 async def forward_support_response(message: types.Message):
-    if message.chat.id ==-1002837608854:  # Замените на ID чата техподдержки
+    if message.chat.id == -1002837608854:  # Замените на ID чата техподдержки
         # Здесь предполагается, что в первом сообщении будет ID пользователя
         parts = message.text.split(":", 1)
         if len(parts) == 2:
