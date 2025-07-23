@@ -46,8 +46,8 @@ class SupportState(StatesGroup):
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     await message.answer("Обновляем интерфейс...", reply_markup=ReplyKeyboardRemove())
-    await message.answer("Привет - привет 👋 <br>"
-                         "Я бот магазина цифровой продукции 'MobiAs'! <br>"
+    await message.answer("Привет - привет 👋 \n"
+                         "Я бот магазина цифровой продукции 'MobiAs'! \n"
                          "Задавай свои вопросы, мы всегда будем рады момочь!",
                          reply_markup=get_start_keyboard(), parse_mode="HTML")
 
@@ -85,7 +85,7 @@ async def handle_question(message: types.Message, state: FSMContext, bot: Bot):
     # Сохраняем данные для ответа
     await state.update_data(user_chat_id=message.chat.id, support_message_id=forward_message.message_id)
 
-    await message.answer("Ваш вопрос уже у нас 💬<br>"
+    await message.answer("Ваш вопрос уже у нас 💬\n"
                         "Очень скоро с вами свяжется наш специалист!")
  
     await state.clear()  # Очищаем состояние
