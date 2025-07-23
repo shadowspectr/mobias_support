@@ -35,3 +35,21 @@ async def send_random_ad(bot: Bot):
             logging.info(f"Реклама отправлена пользователю {user_id}")
         except Exception as e:
             logging.error(f"Ошибка отправки рекламы пользователю {user_id}: {e}")
+
+async def send_ad_to_user(bot: Bot, user_id: int):
+    ads = load_ads()
+
+    if not ads:
+        logging.warning("Нет рекламных материалов для отправки")
+        return
+
+    ad = random.choice(ads)
+    image_path = os.path.join(ADS_FOLDER, ad["image"])
+    caption = ad["text"]
+
+    try:
+        photo = FSInputFile(image_path)
+        await bot.send_photo(chat_id=user_id, photo=photo, caption=caption, parse_mode="HTML")
+        logging.info(f"Акция отправлена пользователю {user_id}")
+    except Exception as e:
+        logging.error(f"Ошибка при отправке акции пользователю {user_id}: {e}")

@@ -5,18 +5,19 @@ from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters.command import Command
 from aiogram.exceptions import TelegramAPIError
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, KeyboardButton ,ReplyKeyboardMarkup
 
 
 def get_start_keyboard():
-    buttons = [
-        # [InlineKeyboardButton(text="📦 Как пользоваться доставкой?", callback_data="get_product")],
-        # [InlineKeyboardButton(text="ℹ️ Как оплатить доставку?", callback_data="info")],
-        # [InlineKeyboardButton(text="ℹ️ Как открыть свой пункт выдачи?",callback_data="partner_info")],
-        # [InlineKeyboardButton(text="📍  Найти пункт выдачи поблизости", callback_data="find_pickup")],
-        [InlineKeyboardButton(text="?  Обратиться в поддержку", callback_data="support")]
-    ]
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🏬 Адреса магазинов")],
+            [KeyboardButton(text="🎁 Актуальные акции")],
+            [KeyboardButton(text="? Обратиться в поддержку")]
+        ],
+        resize_keyboard=True,   # кнопки под размер экрана
+        one_time_keyboard=False # клавиатура будет постоянно на экране
+    )
     return keyboard
 
 
