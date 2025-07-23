@@ -46,7 +46,9 @@ class SupportState(StatesGroup):
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     await message.answer("Обновляем интерфейс...", reply_markup=ReplyKeyboardRemove())
-    await message.answer("Приветствую! Я бот магазина цифровыой продукции 'MobiAs', с нетерпением жду ваши вопросы",
+    await message.answer("Привет - привет 👋 "
+                         "Ваш запрос уже у нас 💬"
+                         "<b>Очень скоро</b> с вами свяжется наш специалист!",
                          reply_markup=get_start_keyboard(), parse_mode="HTML")
 
 
