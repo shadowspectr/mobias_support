@@ -20,7 +20,7 @@ from support_handler import callback_router as support_router
 from partner_handler import partner_router
 from src.broadcast import send_random_ad
 from src.broadcast import send_ad_to_user
-from aiogram.filters import Text
+
 
 load_dotenv()
 
@@ -103,7 +103,7 @@ async def broadcast_ads(message: types.Message):
     await send_random_ad(bot)
 
 
-@dp.message(Text("🏬 Адреса магазинов"))
+@dp.message(F.text == "🏬 Адреса магазинов")
 async def show_shop_addresses(message: types.Message):
     addresses = (
         "📍 <b>Г. Мелитополь, Пр-т Б. Хмельницкого 24</b>\n"
@@ -118,7 +118,7 @@ async def show_shop_addresses(message: types.Message):
     await message.answer(addresses, parse_mode="HTML")
 
 
-@dp.message(Text("🎁 Актуальные акции"))
+@dp.message(F.text == "🎁 Актуальные акции")
 async def handle_promotions(message: types.Message, bot: Bot):
     await send_ad_to_user(bot, message.from_user.id)
 
@@ -134,7 +134,7 @@ async def process_open_main(callback: types.CallbackQuery):
     )
 
 
-@dp.message(Text("❓ Обратиться в поддержку"))
+@dp.message(F.text == "❓ Обратиться в поддержку")
 async def support_start(message: types.Message, state: FSMContext):
     await message.answer("🛠 Пожалуйста, опишите вашу проблему или задайте вопрос.")
     await state.set_state(SupportState.waiting_for_question)  # Устанавливаем состояние ожидания вопроса
