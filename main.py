@@ -175,8 +175,8 @@ async def handle_location(message: Message):
 
     await message.reply(response, parse_mode="HTML")
 
-# Fallback обработчик для неизвестных сообщений
-@dp.message()
+# Fallback обработчик для неизвестных сообщений (исключаем чат поддержки)
+@dp.message(lambda message: message.chat.id != SUPPORT_CHAT_ID)
 async def fallback_handler(message: types.Message, bot: Bot):
     # Если текст совпадает с известными кнопками — не обрабатываем
     if message.text and message.text.strip() in KNOWN_BUTTON_TEXTS:
