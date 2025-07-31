@@ -22,25 +22,34 @@ async def support_start(callback: CallbackQuery, state: FSMContext):
 # Обработчик получения вопроса
 @callback_router.message(SupportState.waiting_for_question)
 async def receive_support_question(message: types.Message, state: FSMContext):
-    support_chat_id = -1002837608854 # Замените на реальный ID чата с поддержкой
-    user_question = message.text
+    support_chat_id = -1002837608854
 
-    # Пересылаем вопрос в чат техподдержки
-    await message.bot.send_message(support_chat_id, f"Новый вопрос от пользователя:\n\n{user_question}")
-
-    await message.answer("Ваш вопрос был отправлен в техподдержку. Ожидайте ответа.")
-    await state.clear()  # Сбрасываем состояние
+    # Пересылаем сообщение с вложением
+    forwarded = await message.forward(support_chat_id)
+    await message.bot.send_message(support_chat_id, f"[ID:{message.from_user.id}]")
+    
+    await message.answer("Ваше сообщение отправлено в поддержку 💬")
+    await state.clear()
 
 
 # Обработчик пересылки ответа из техподдержки пользователю
 @callback_router.message()
 async def forward_support_response(message: types.Message):
-    if message.chat.id == -1002837608854:  # Замените на ID чата техподдержки
-        # Здесь предполагается, что в первом сообщении будет ID пользователя
-        parts = message.text.split(":", 1)
-        if len(parts) == 2:
-            user_id = int(parts[0])
-            support_answer = parts[1].strip()
+    if message.chat.id == -1002837608854:
+        try:
+            # Получаем user_id из предыдущих сообщений
+            history = await message.bot.get_chat_history(-1002837608854, limit=5)
+            user_id = None
+            for msg in history:
+                if msg.text and msg.text.startswith("[ID:"):
+                    try:
+                        user_id = int(msg.text.strip()[4:-1])
+                        break
+                    except:
+                        continue
 
-            # Отправляем ответ пользователю
-            await message.bot.send_message(user_id, f"Ответ от техподдержки:\n\n{support_answer}")
+            if user_id:
+                await message.copy_to(chat_id=user_id)
+        except Exception as e:
+            print(f"Ошибка при пересылке вложения пользователю: {e}")
+

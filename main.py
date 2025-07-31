@@ -150,35 +150,47 @@ async def support_start(message: types.Message, state: FSMContext):
 # Обработка вопроса от пользователя
 @dp.message(SupportState.waiting_for_question)
 async def handle_question(message: types.Message, state: FSMContext, bot: Bot):
-    user_question = message.text
+    try:
+        # Пересылаем оригинальное сообщение (с сохранением вложений и подписи)
+        forwarded = await message.forward(SUPPORT_CHAT_ID)
 
-    # Пересылаем вопрос в чат техподдержки
-    forward_message = await bot.send_message(
-        SUPPORT_CHAT_ID,
-        f"🔔 Вопрос от пользователя @{message.from_user.username} (ID: {message.from_user.id}):\n{user_question}"
-    )
+        # Сохраняем user_id и message_id, чтобы потом знать, кому отвечать
+        await bot.send_message(
+            SUPPORT_CHAT_ID,
+            f"[ID:{message.from_user.id}]"
+        )
 
-    # Сохраняем данные для ответа
-    await state.update_data(user_chat_id=message.chat.id, support_message_id=forward_message.message_id)
-
-    await message.answer("Ваш вопрос уже у нас 💬\n"
-                        "Очень скоро с вами свяжется наш специалист!")
-    await state.clear()  # Очищаем состояние
+        await message.answer("Ваше сообщение отправлено в поддержку 💬\nСкоро с вами свяжется специалист.")
+        await state.clear()
+    except Exception as e:
+        logging.error(f"Ошибка при отправке сообщения в поддержку: {e}")
+        await message.answer("Произошла ошибка при отправке сообщения. Попробуйте позже.")
 
 
 # Обработка ответа от техподдержки
 @dp.message(F.chat.id == SUPPORT_CHAT_ID)
 async def forward_answer_from_support(message: types.Message, bot: Bot):
-    if message.reply_to_message:
-        # Извлекаем ID пользователя
-        question_info = message.reply_to_message.text.split('\n')[0]
-        user_id = int(question_info.split('(ID: ')[1].replace('):', ''))
+    try:
+        if message.reply_to_message:
+            # Получаем user_id из дополнительного сообщения
+            previous_msgs = await bot.get_chat_history(SUPPORT_CHAT_ID, limit=5)
+            user_id = None
+            for msg in previous_msgs:
+                if msg.text and msg.text.startswith("[ID:"):
+                    try:
+                        user_id = int(msg.text.strip()[4:-1])
+                        break
+                    except:
+                        continue
 
-        # Пересылаем ответ пользователю
-        await bot.send_message(
-            user_id,
-            f"💬 Ответ от службы поддержки:\n{message.text}"
-        )
+            if user_id:
+                # Пересылаем как есть (со вложением)
+                await message.copy_to(chat_id=user_id)
+            else:
+                logging.warning("Не удалось найти ID пользователя для ответа.")
+    except Exception as e:
+        logging.error(f"Ошибка при пересылке ответа пользователю: {e}")
+
 
 
 # Функция для удаления вебхука
