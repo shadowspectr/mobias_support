@@ -69,6 +69,13 @@ dp.include_router(support_router)
 df = pd.read_excel('map.xlsx')
 router = Router()
 
+logging.info(f"message: {message}")
+logging.info(f"text: {message.text}")
+logging.info(f"caption: {message.caption}")
+logging.info(f"document: {message.document}")
+logging.info(f"photo: {message.photo}")
+
+
 # ID чата техподдержки (замените на реальный)
 SUPPORT_CHAT_ID = -1002837608854
 KNOWN_BUTTON_TEXTS = {
@@ -151,17 +158,18 @@ async def support_start(message: types.Message, state: FSMContext):
 @dp.message(SupportState.waiting_for_question)
 async def handle_question(message: types.Message, state: FSMContext, bot: Bot):
     try:
-        # Копируем сообщение пользователя со всем содержимым (фото, текст, документы и т.д.)
+        # 1. Копируем сообщение (любой тип: текст, фото, документ и т.д.)
         await message.copy_to(chat_id=SUPPORT_CHAT_ID)
-        
-        # Отправляем техническую строку с ID пользователя
+
+        # 2. Передаём ID пользователя в служебном сообщении
         await bot.send_message(SUPPORT_CHAT_ID, f"[ID:{message.from_user.id}]")
 
         await message.answer("Ваше сообщение отправлено в поддержку 💬\nСкоро с вами свяжется специалист.")
         await state.clear()
+
     except Exception as e:
         logging.error(f"Ошибка при отправке сообщения в поддержку: {e}")
-        await message.answer("Произошла ошибка при отправке сообщения. Попробуйте позже.")
+        await message.answer("Произошла ошибка при отправке. Попробуйте позже.")
 
 
 
@@ -169,7 +177,7 @@ async def handle_question(message: types.Message, state: FSMContext, bot: Bot):
 @dp.message(F.chat.id == SUPPORT_CHAT_ID)
 async def forward_answer_from_support(message: types.Message, bot: Bot):
     try:
-        # Получаем user_id из недавней истории чата
+        # 1. Получаем user_id из последних сообщений
         history = await bot.get_chat_history(SUPPORT_CHAT_ID, limit=5)
         user_id = None
         for msg in history:
@@ -180,12 +188,14 @@ async def forward_answer_from_support(message: types.Message, bot: Bot):
                 except:
                     continue
 
+        # 2. Копируем сообщение как есть
         if user_id:
             await message.copy_to(chat_id=user_id)
         else:
-            logging.warning("Не удалось найти ID пользователя.")
+            logging.warning("Не удалось определить ID пользователя.")
     except Exception as e:
-        logging.error(f"Ошибка при пересылке ответа пользователю: {e}")
+        logging.error(f"Ошибка при пересылке ответа: {e}")
+
 
 
 
