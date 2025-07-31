@@ -22,14 +22,21 @@ async def support_start(callback: CallbackQuery, state: FSMContext):
 # Обработчик получения вопроса
 @callback_router.message(SupportState.waiting_for_question)
 async def receive_support_question(message: types.Message, state: FSMContext):
-    support_chat_id = -1002837608854
+    support_chat_id = -1002837608854  # Замените на ваш ID
 
-    # Пересылаем сообщение с вложением
-    forwarded = await message.forward(support_chat_id)
-    await message.bot.send_message(support_chat_id, f"[ID:{message.from_user.id}]")
-    
-    await message.answer("Ваше сообщение отправлено в поддержку 💬")
-    await state.clear()
+    try:
+        # Пересылаем сообщение с вложением как есть
+        await message.copy_to(chat_id=support_chat_id)
+
+        # Отправляем системный идентификатор пользователя
+        await message.bot.send_message(support_chat_id, f"[ID:{message.from_user.id}]")
+
+        await message.answer("Ваше сообщение отправлено в техподдержку 💬\nСкоро с вами свяжется специалист.")
+        await state.clear()
+    except Exception as e:
+        await message.answer("Произошла ошибка при отправке сообщения.")
+        print(f"[Ошибка пересылки сообщения в поддержку] {e}")
+
 
 
 # Обработчик пересылки ответа из техподдержки пользователю
@@ -37,8 +44,8 @@ async def receive_support_question(message: types.Message, state: FSMContext):
 async def forward_support_response(message: types.Message):
     if message.chat.id == -1002837608854:
         try:
-            # Получаем user_id из предыдущих сообщений
-            history = await message.bot.get_chat_history(-1002837608854, limit=5)
+            # Ищем последний [ID:...] в истории
+            history = await message.bot.get_chat_history(message.chat.id, limit=5)
             user_id = None
             for msg in history:
                 if msg.text and msg.text.startswith("[ID:"):
@@ -50,6 +57,9 @@ async def forward_support_response(message: types.Message):
 
             if user_id:
                 await message.copy_to(chat_id=user_id)
+            else:
+                await message.answer("Не удалось определить ID пользователя для ответа.")
         except Exception as e:
-            print(f"Ошибка при пересылке вложения пользователю: {e}")
+            print(f"[Ошибка пересылки ответа от поддержки] {e}")
+
 
