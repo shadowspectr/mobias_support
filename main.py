@@ -69,11 +69,7 @@ dp.include_router(support_router)
 df = pd.read_excel('map.xlsx')
 router = Router()
 
-logging.info(f"message: {message}")
-logging.info(f"text: {message.text}")
-logging.info(f"caption: {message.caption}")
-logging.info(f"document: {message.document}")
-logging.info(f"photo: {message.photo}")
+
 
 
 # ID чата техподдержки (замените на реальный)
