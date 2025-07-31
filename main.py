@@ -132,8 +132,86 @@ async def process_open_main(callback: types.CallbackQuery):
         parse_mode="HTML"
     )
 
-# УБИРАЕМ дублирующиеся обработчики поддержки из main.py
-# Они теперь обрабатываются в support_handler.py
+# Обработчик для кнопки "Обратиться в поддержку" (текстовой)
+@dp.message(F.text == "❓ Обратиться в поддержку")
+async def support_redirect(message: types.Message, state: FSMContext):
+    await message.answer("🛠 Пожалуйста, опишите вашу проблему или задайте вопрос.")
+    await state.set_state(SupportState.waiting_for_question)
+
+# Обработчик вопросов в состоянии ожидания
+@dp.message(SupportState.waiting_for_question)
+async def handle_support_question(message: types.Message, state: FSMContext, bot: Bot):
+    try:
+        # 1. Копируем сообщение в поддержку
+        copied_msg = await message.copy_to(chat_id=SUPPORT_CHAT_ID)
+        
+        # 2. Отправляем ID пользователя как reply к скопированному сообщению
+        await bot.send_message(
+            SUPPORT_CHAT_ID, 
+            f"[ID:{message.from_user.id}] @{message.from_user.username or 'нет_username'}",
+            reply_to_message_id=copied_msg.message_id
+        )
+        
+        await message.answer("Ваше сообщение отправлено в техподдержку 💬\nСкоро с вами свяжется специалист.")
+        await state.clear()
+        
+    except Exception as e:
+        logging.error(f"Ошибка при отправке в поддержку: {e}")
+        await message.answer("Произошла ошибка при отправке. Попробуйте позже.")
+
+# Обработчик ответов из чата поддержки
+@dp.message(lambda message: message.chat.id == SUPPORT_CHAT_ID)
+async def handle_support_responses(message: types.Message, bot: Bot):
+    try:
+        # Игнорируем сообщения от бота
+        if message.from_user.is_bot:
+            return
+            
+        # Обрабатываем только ответы (reply)
+        if not message.reply_to_message:
+            return
+            
+        user_id = None
+        
+        # Если отвечают на сообщение с [ID:...]
+        if message.reply_to_message.text and message.reply_to_message.text.startswith("[ID:"):
+            try:
+                id_part = message.reply_to_message.text.split("]")[0][4:]
+                user_id = int(id_part)
+            except (ValueError, IndexError):
+                pass
+        
+        # Если отвечают на скопированное сообщение пользователя,
+        # ищем связанное сообщение с ID (которое было отправлено как reply)
+        elif message.reply_to_message.reply_to_message and message.reply_to_message.reply_to_message.text:
+            # Проверяем, есть ли reply к replied сообщению с ID
+            reply_text = message.reply_to_message.reply_to_message.text
+            if reply_text.startswith("[ID:"):
+                try:
+                    id_part = reply_text.split("]")[0][4:]
+                    user_id = int(id_part)
+                except (ValueError, IndexError):
+                    pass
+        
+        if user_id:
+            # Пересылаем ответ пользователю
+            await message.copy_to(chat_id=user_id)
+            
+            # Подтверждение в чат поддержки
+            await bot.send_message(
+                SUPPORT_CHAT_ID,
+                f"✅ Ответ отправлен пользователю {user_id}",
+                reply_to_message_id=message.message_id
+            )
+            logging.info(f"Ответ переслан пользователю {user_id}")
+        else:
+            await bot.send_message(
+                SUPPORT_CHAT_ID,
+                "❌ Не удалось определить получателя. Ответьте на сообщение с [ID:...]"
+            )
+            
+    except Exception as e:
+        logging.error(f"Ошибка обработки ответа поддержки: {e}")
 
 # Функция для удаления вебхука
 async def delete_webhook():

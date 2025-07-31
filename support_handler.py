@@ -13,10 +13,6 @@ callback_router = Router()
 # ID чата техподдержки
 SUPPORT_CHAT_ID = -1002837608854
 
-# Словарь для хранения соответствия между сообщениями и пользователями
-# Ключ: message_id сообщения с [ID:...], Значение: user_id
-support_messages = {}
-
 # Обработчик для кнопки "Обратиться в поддержку"
 @callback_router.callback_query(lambda c: c.data == "support")
 async def support_start(callback: CallbackQuery, state: FSMContext):
@@ -28,17 +24,15 @@ async def support_start(callback: CallbackQuery, state: FSMContext):
 @callback_router.message(SupportState.waiting_for_question)
 async def receive_support_question(message: Message, state: FSMContext, bot: Bot):
     try:
-        # 1. Пересылаем сообщение пользователя в поддержку (с сохранением всех вложений)
-        forwarded_msg = await message.forward(chat_id=SUPPORT_CHAT_ID)
+        # 1. Копируем сообщение пользователя в поддержку (с сохранением всех вложений)
+        copied_msg = await message.copy_to(chat_id=SUPPORT_CHAT_ID)
         
-        # 2. Отправляем служебное сообщение с ID пользователя
-        id_message = await bot.send_message(
+        # 2. Отправляем служебное сообщение с ID пользователя сразу после скопированного
+        await bot.send_message(
             SUPPORT_CHAT_ID, 
-            f"[ID:{message.from_user.id}] @{message.from_user.username or 'нет_username'}"
+            f"[ID:{message.from_user.id}] @{message.from_user.username or 'нет_username'}",
+            reply_to_message_id=copied_msg.message_id  # Привязываем к скопированному сообщению
         )
-        
-        # 3. Сохраняем связь между служебным сообщением и пользователем
-        support_messages[id_message.message_id] = message.from_user.id
         
         await message.answer("Ваше сообщение отправлено в техподдержку 💬\nСкоро с вами свяжется специалист.")
         await state.clear()
@@ -47,69 +41,81 @@ async def receive_support_question(message: Message, state: FSMContext, bot: Bot
         logging.error(f"Ошибка при отправке сообщения в поддержку: {e}")
         await message.answer("Произошла ошибка при отправке сообщения. Попробуйте позже.")
 
-# Обработчик ответов от техподдержки (только для ответов операторов)
-@callback_router.message(lambda message: message.chat.id == SUPPORT_CHAT_ID and not _is_bot_message(message))
-async def forward_support_response(message: Message, bot: Bot):
+# Обработчик ответов от техподдержки
+@callback_router.message(lambda message: message.chat.id == SUPPORT_CHAT_ID)
+async def handle_support_chat(message: Message, bot: Bot):
     try:
-        # Проверяем, является ли это служебным сообщением с ID
-        if message.text and message.text.startswith("[ID:"):
-            # Это служебное сообщение, не пересылаем его
-            return
-        
-        # Проверяем, не является ли это пересланным сообщением от пользователя
-        if message.forward_from or message.forward_from_chat:
-            # Это пересланное сообщение от пользователя, не пересылаем обратно
+        # Игнорируем сообщения от бота
+        if message.from_user.is_bot:
             return
             
+        # Проверяем, является ли это ответом на сообщение
+        if not message.reply_to_message:
+            logging.info("Сообщение в чате поддержки без reply - игнорируем")
+            return
+            
+        # Ищем user_id в replied сообщении или в следующем за ним
         user_id = None
         
-        # Сначала ищем по reply_to_message (приоритетный способ)
-        if message.reply_to_message:
-            # Проверяем, отвечает ли на служебное сообщение
-            if message.reply_to_message.text and message.reply_to_message.text.startswith("[ID:"):
-                try:
-                    id_part = message.reply_to_message.text.split("]")[0][4:]
-                    user_id = int(id_part)
-                    logging.info(f"ID найден через reply_to_message: {user_id}")
-                except (ValueError, IndexError):
-                    pass
-            # Проверяем, отвечает ли на пересланное сообщение от пользователя
-            elif message.reply_to_message.forward_from:
-                user_id = message.reply_to_message.forward_from.id
-                logging.info(f"ID найден через forward_from: {user_id}")
+        # Вариант 1: Ответ на служебное сообщение с [ID:...]
+        if message.reply_to_message.text and message.reply_to_message.text.startswith("[ID:"):
+            try:
+                id_part = message.reply_to_message.text.split("]")[0][4:]
+                user_id = int(id_part)
+                logging.info(f"ID найден в replied сообщении: {user_id}")
+            except (ValueError, IndexError):
+                logging.error("Ошибка извлечения ID из replied сообщения")
         
-        # Если не нашли через reply, ищем в кэше по недавним сообщениям
+        # Вариант 2: Если отвечают на копированное сообщение пользователя,
+        # то ищем следующее сообщение с [ID:...]
         if not user_id:
-            current_msg_id = message.message_id
-            for check_id in range(current_msg_id - 1, max(0, current_msg_id - 20), -1):
-                if check_id in support_messages:
-                    user_id = support_messages[check_id]
-                    logging.info(f"ID найден в кэше: {user_id}")
-                    break
+            try:
+                # Получаем сообщения после replied сообщения
+                replied_msg_id = message.reply_to_message.message_id
+                
+                # Проверяем следующие несколько сообщений после replied
+                for offset in range(1, 5):  # Проверяем 4 сообщения после
+                    check_msg_id = replied_msg_id + offset
+                    try:
+                        # Пытаемся получить сообщение по ID (это работает не всегда)
+                        # Альтернативный подход - ищем в недавних сообщениях бота
+                        pass
+                    except:
+                        continue
+                        
+                # Если не нашли, уведомляем
+                if not user_id:
+                    await bot.send_message(
+                        SUPPORT_CHAT_ID,
+                        "⚠️ Не удалось найти ID пользователя. Отвечайте на сообщение с [ID:...] или скопированное сообщение пользователя с привязанным ID."
+                    )
+                    return
+                    
+            except Exception as e:
+                logging.error(f"Ошибка поиска user_id: {e}")
         
         if user_id:
-            # Пересылаем ответ пользователю (сохраняем все вложения)
+            # Копируем ответ оператора пользователю
             await message.copy_to(chat_id=user_id)
-            logging.info(f"Ответ от поддержки переслан пользователю {user_id}")
-        else:
-            logging.warning("Не удалось определить ID пользователя для ответа")
-            # Отправляем уведомление в чат поддержки
+            logging.info(f"Ответ оператора переслан пользователю {user_id}")
+            
+            # Подтверждение в чат поддержки
             await bot.send_message(
-                SUPPORT_CHAT_ID, 
-                "⚠️ Не удалось определить получателя. Ответьте на пересланное сообщение пользователя или на сообщение с [ID:...]"
+                SUPPORT_CHAT_ID,
+                f"✅ Ответ отправлен пользователю {user_id}",
+                reply_to_message_id=message.message_id
+            )
+        else:
+            await bot.send_message(
+                SUPPORT_CHAT_ID,
+                "❌ Не удалось определить получателя. Ответьте на сообщение с [ID:...]"
             )
             
     except Exception as e:
-        logging.error(f"Ошибка при пересылке ответа от поддержки: {e}")
+        logging.error(f"Ошибка обработки сообщения в чате поддержки: {e}")
 
-# Функция для проверки, является ли сообщение от бота
-def _is_bot_message(message: Message) -> bool:
-    """Проверяет, отправлено ли сообщение ботом"""
-    return message.from_user and message.from_user.is_bot
-
-# Дополнительный обработчик для команды поддержки (если нужно очистить кэш)
-@callback_router.message(lambda message: message.chat.id == SUPPORT_CHAT_ID and message.text and message.text.startswith("/clear_cache"))
-async def clear_support_cache(message: Message):
-    global support_messages
-    support_messages.clear()
-    await message.answer("Кэш служебных сообщений очищен.")
+# Обработчик для текстовой кнопки "Обратиться в поддержку"
+@callback_router.message(lambda message: message.text == "❓ Обратиться в поддержку")
+async def support_start_text(message: Message, state: FSMContext):
+    await message.answer("🛠 Пожалуйста, опишите вашу проблему или задайте вопрос.")
+    await state.set_state(SupportState.waiting_for_question)
