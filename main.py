@@ -21,17 +21,14 @@ from partner_handler import partner_router
 from src.broadcast import send_random_ad
 from src.broadcast import send_ad_to_user
 
-
 load_dotenv()
 
 BOT_TOKEN = os.getenv('API_KEY')
 USER_IDS_FILE = "user_ids.txt"
 
-
 def load_user_ids():
     try:
         if not os.path.exists(USER_IDS_FILE):
-            # Создаем файл, если он не существует
             with open(USER_IDS_FILE, "w") as f:
                 pass
             logging.info("Создан новый файл user_ids.txt")
@@ -54,8 +51,6 @@ def save_user_id(user_id: int):
     except Exception as e:
         logging.error(f"Ошибка при сохранении user_id {user_id}: {e}")
 
-
-
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=BOT_TOKEN)
@@ -65,14 +60,11 @@ dp.message.middleware(UserLoggingMiddleware())
 dp.callback_query.middleware(UserLoggingMiddleware())
 dp.include_router(partner_router)
 dp.include_router(callback_router)
-dp.include_router(support_router)
+dp.include_router(support_router)  # Роутер поддержки должен быть включен
 df = pd.read_excel('map.xlsx')
 router = Router()
 
-
-
-
-# ID чата техподдержки (замените на реальный)
+# ID чата техподдержки
 SUPPORT_CHAT_ID = -1002837608854
 KNOWN_BUTTON_TEXTS = {
     "📦 Как пользоваться доставкой?",
@@ -84,20 +76,19 @@ KNOWN_BUTTON_TEXTS = {
     "🎁 Актуальные акции"
 }
 
-# Состояния для FSM
+# Состояния для FSM (оставляем только если используются в main.py)
 class SupportState(StatesGroup):
     waiting_for_question = State()
-
 
 # Обработчик команды /start
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
+    save_user_id(message.from_user.id)  # Сохраняем ID пользователя
     await message.answer("Обновляем интерфейс...", reply_markup=ReplyKeyboardRemove())
     await message.answer("Привет - привет 👋 \n"
                          "Я бот магазина цифровой продукции 'MobiAs'! \n"
-                         "Задавай свои вопросы, мы всегда будем рады момочь!",
+                         "Задавай свои вопросы, мы всегда будем рады помочь!",
                          reply_markup=get_start_keyboard(), parse_mode="HTML")
-
 
 @dp.message(Command("list"))
 async def list_user_ids(message: types.Message):
@@ -107,12 +98,10 @@ async def list_user_ids(message: types.Message):
     else:
         await message.answer("Список ID пользователей:\n" + "\n".join(user_ids))
 
-# Команда: /broadcast
 @dp.message(Command("broadcast"))
 async def broadcast_ads(message: types.Message):
     await message.answer("Рассылаю рекламу...")
     await send_random_ad(bot)
-
 
 @dp.message(F.text == "🏬 Адреса магазинов")
 async def show_shop_addresses(message: types.Message):
@@ -128,14 +117,13 @@ async def show_shop_addresses(message: types.Message):
     )
     await message.answer(addresses, parse_mode="HTML")
 
-
 @dp.message(F.text == "🎁 Актуальные акции")
 async def handle_promotions(message: types.Message, bot: Bot):
     await send_ad_to_user(bot, message.from_user.id)
 
 @dp.callback_query(lambda c: c.data == "open_main")
 async def process_open_main(callback: types.CallbackQuery):
-    await callback.answer()  # Отвечаем на callback, чтобы убрать "часики" у кнопки
+    await callback.answer()
     await callback.message.answer("Обновляем интерфейс...", reply_markup=ReplyKeyboardRemove())
     await callback.message.answer(
         "Приветствую! Я бот +7Доставки. Расскажу, как бесплатно получать товары с "
@@ -144,56 +132,8 @@ async def process_open_main(callback: types.CallbackQuery):
         parse_mode="HTML"
     )
 
-
-@dp.message(F.text == "❓ Обратиться в поддержку")
-async def support_start(message: types.Message, state: FSMContext):
-    await message.answer("🛠 Пожалуйста, опишите вашу проблему или задайте вопрос.")
-    await state.set_state(SupportState.waiting_for_question)  # Устанавливаем состояние ожидания вопроса
-
-# Обработка вопроса от пользователя
-@dp.message(SupportState.waiting_for_question)
-async def handle_question(message: types.Message, state: FSMContext, bot: Bot):
-    try:
-        # 1. Копируем сообщение (любой тип: текст, фото, документ и т.д.)
-        await message.copy_to(chat_id=SUPPORT_CHAT_ID)
-
-        # 2. Передаём ID пользователя в служебном сообщении
-        await bot.send_message(SUPPORT_CHAT_ID, f"[ID:{message.from_user.id}]")
-
-        await message.answer("Ваше сообщение отправлено в поддержку 💬\nСкоро с вами свяжется специалист.")
-        await state.clear()
-
-    except Exception as e:
-        logging.error(f"Ошибка при отправке сообщения в поддержку: {e}")
-        await message.answer("Произошла ошибка при отправке. Попробуйте позже.")
-
-
-
-# Обработка ответа от техподдержки
-@dp.message(F.chat.id == SUPPORT_CHAT_ID)
-async def forward_answer_from_support(message: types.Message, bot: Bot):
-    try:
-        # 1. Получаем user_id из последних сообщений
-        history = await bot.get_chat_history(SUPPORT_CHAT_ID, limit=5)
-        user_id = None
-        for msg in history:
-            if msg.text and msg.text.startswith("[ID:"):
-                try:
-                    user_id = int(msg.text.strip()[4:-1])
-                    break
-                except:
-                    continue
-
-        # 2. Копируем сообщение как есть
-        if user_id:
-            await message.copy_to(chat_id=user_id)
-        else:
-            logging.warning("Не удалось определить ID пользователя.")
-    except Exception as e:
-        logging.error(f"Ошибка при пересылке ответа: {e}")
-
-
-
+# УБИРАЕМ дублирующиеся обработчики поддержки из main.py
+# Они теперь обрабатываются в support_handler.py
 
 # Функция для удаления вебхука
 async def delete_webhook():
@@ -202,7 +142,6 @@ async def delete_webhook():
         logging.info("Вебхук успешно удален")
     except TelegramAPIError as e:
         logging.error(f"Ошибка при удалении вебхука: {e}")
-
 
 # Функция поиска ближайших пунктов
 def get_nearby_locations(user_location, max_distance_km=2):
@@ -213,13 +152,10 @@ def get_nearby_locations(user_location, max_distance_km=2):
         location = (row['широта'], row['долгота'])
         distance = geodesic(user_location, location).kilometers
         if distance <= max_distance_km:
-            # Добавляем флаг приоритетности
             is_priority = row['адрес'] == priority_location
             nearby_locations.append((row['адрес'], distance, row['ссылка'], row['широта'], row['долгота'], is_priority))
 
-    # Сортируем с приоритетным местоположением первым
     return sorted(nearby_locations, key=lambda x: (not x[5], x[1]))
-
 
 @dp.message(F.content_type == ContentType.LOCATION)
 async def handle_location(message: Message):
@@ -231,7 +167,6 @@ async def handle_location(message: Message):
         response = "<b>Вот ближайшие к вам пункты выдачи:</b>\n\n"
         for address, distance, link, lat, lon, is_priority in nearby_locations:
             yandex_maps_url = f"https://yandex.ru/maps/?ll={lon},{lat}&z=16&mode=search&text={address}"
-
             response += f"📍 <b>{address}</b> - {distance:.2f} км\n"
             response += f"🔗 <a href='{link}'>Добавить пункт выдачи в Ozon</a>\n"
             response += f"🗺️ <a href='{yandex_maps_url}'>Открыть в Яндекс.Картах</a>\n\n"
@@ -240,38 +175,34 @@ async def handle_location(message: Message):
 
     await message.reply(response, parse_mode="HTML")
 
-
+# Fallback обработчик для неизвестных сообщений
 @dp.message()
 async def fallback_handler(message: types.Message, bot: Bot):
-    # Если текст совпадает с одной из известных кнопок — не обрабатываем
+    # Если текст совпадает с известными кнопками — не обрабатываем
     if message.text and message.text.strip() in KNOWN_BUTTON_TEXTS:
         return
 
-    # Пересылаем сообщение в техподдержку
-    forward_message = await bot.send_message(
-        SUPPORT_CHAT_ID,
-        f"🔔 Обращение от пользователя @{message.from_user.username} (ID: {message.from_user.id}):\n{message.text}"
-    )
-
-    await message.answer("Ваше сообщение передано в службу поддержки 💬\n"
-                         "Мы свяжемся с вами в ближайшее время!")
-
-
-
+    # Пересылаем неизвестные сообщения в техподдержку
+    try:
+        await message.forward(chat_id=SUPPORT_CHAT_ID)
+        await bot.send_message(
+            SUPPORT_CHAT_ID,
+            f"[ID:{message.from_user.id}] @{message.from_user.username or 'нет_username'} - автоматическая пересылка"
+        )
+        await message.answer("Ваше сообщение передано в службу поддержки 💬\n"
+                           "Мы свяжемся с вами в ближайшее время!")
+    except Exception as e:
+        logging.error(f"Ошибка при пересылке сообщения: {e}")
 
 dp.include_router(router)
 
-
 # Функция запуска бота
 async def main():
-    # Удаляем вебхук перед запуском бота
     await delete_webhook()
-    # Запускаем бота
     try:
         await dp.start_polling(bot)
     except TelegramAPIError as e:
         logging.error(f"Ошибка при запуске бота: {e}")
-
 
 if __name__ == "__main__":
     keep_alive.keep_alive()
