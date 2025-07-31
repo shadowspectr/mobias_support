@@ -151,14 +151,11 @@ async def support_start(message: types.Message, state: FSMContext):
 @dp.message(SupportState.waiting_for_question)
 async def handle_question(message: types.Message, state: FSMContext, bot: Bot):
     try:
-        # Пересылаем оригинальное сообщение (с сохранением вложений и подписи)
-        forwarded = await message.forward(SUPPORT_CHAT_ID)
-
-        # Сохраняем user_id и message_id, чтобы потом знать, кому отвечать
-        await bot.send_message(
-            SUPPORT_CHAT_ID,
-            f"[ID:{message.from_user.id}]"
-        )
+        # Копируем сообщение пользователя со всем содержимым (фото, текст, документы и т.д.)
+        await message.copy_to(chat_id=SUPPORT_CHAT_ID)
+        
+        # Отправляем техническую строку с ID пользователя
+        await bot.send_message(SUPPORT_CHAT_ID, f"[ID:{message.from_user.id}]")
 
         await message.answer("Ваше сообщение отправлено в поддержку 💬\nСкоро с вами свяжется специалист.")
         await state.clear()
@@ -167,27 +164,26 @@ async def handle_question(message: types.Message, state: FSMContext, bot: Bot):
         await message.answer("Произошла ошибка при отправке сообщения. Попробуйте позже.")
 
 
+
 # Обработка ответа от техподдержки
 @dp.message(F.chat.id == SUPPORT_CHAT_ID)
 async def forward_answer_from_support(message: types.Message, bot: Bot):
     try:
-        if message.reply_to_message:
-            # Получаем user_id из дополнительного сообщения
-            previous_msgs = await bot.get_chat_history(SUPPORT_CHAT_ID, limit=5)
-            user_id = None
-            for msg in previous_msgs:
-                if msg.text and msg.text.startswith("[ID:"):
-                    try:
-                        user_id = int(msg.text.strip()[4:-1])
-                        break
-                    except:
-                        continue
+        # Получаем user_id из недавней истории чата
+        history = await bot.get_chat_history(SUPPORT_CHAT_ID, limit=5)
+        user_id = None
+        for msg in history:
+            if msg.text and msg.text.startswith("[ID:"):
+                try:
+                    user_id = int(msg.text.strip()[4:-1])
+                    break
+                except:
+                    continue
 
-            if user_id:
-                # Пересылаем как есть (со вложением)
-                await message.copy_to(chat_id=user_id)
-            else:
-                logging.warning("Не удалось найти ID пользователя для ответа.")
+        if user_id:
+            await message.copy_to(chat_id=user_id)
+        else:
+            logging.warning("Не удалось найти ID пользователя.")
     except Exception as e:
         logging.error(f"Ошибка при пересылке ответа пользователю: {e}")
 
