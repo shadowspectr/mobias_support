@@ -64,11 +64,12 @@ dp.include_router(support_router)  # Роутер поддержки долже�
 df = pd.read_excel('map.xlsx')
 router = Router()
 
-# ID чата техподдержки
-SUPPORT_CHAT_ID = -1002837608854
+# ID чата для тикетов (группа, не диалог)
+SUPPORT_TICKETS_CHAT_ID = -4961897884
+
 KNOWN_BUTTON_TEXTS = {
     "📦 Как пользоваться доставкой?",
-    "ℹ️ Как оплатить доставку?",
+    "ℹ️ Как оплатить доставку?", 
     "ℹ️ Как открыть свой пункт выдачи?",
     "📍 Найти пункт выдачи поблизости",
     "❓ Обратиться в поддержку",
@@ -76,9 +77,7 @@ KNOWN_BUTTON_TEXTS = {
     "🎁 Актуальные акции"
 }
 
-# Состояния для FSM (оставляем только если используются в main.py)
-class SupportState(StatesGroup):
-    waiting_for_question = State()
+# Убираем состояния поддержки - они теперь в support_handler.py
 
 # Обработчик команды /start
 @dp.message(Command("start"))
@@ -132,86 +131,7 @@ async def process_open_main(callback: types.CallbackQuery):
         parse_mode="HTML"
     )
 
-# Обработчик для кнопки "Обратиться в поддержку" (текстовой)
-@dp.message(F.text == "❓ Обратиться в поддержку")
-async def support_redirect(message: types.Message, state: FSMContext):
-    await message.answer("🛠 Пожалуйста, опишите вашу проблему или задайте вопрос.")
-    await state.set_state(SupportState.waiting_for_question)
-
-# Обработчик вопросов в состоянии ожидания
-@dp.message(SupportState.waiting_for_question)
-async def handle_support_question(message: types.Message, state: FSMContext, bot: Bot):
-    try:
-        # 1. Копируем сообщение в поддержку
-        copied_msg = await message.copy_to(chat_id=SUPPORT_CHAT_ID)
-        
-        # 2. Отправляем ID пользователя как reply к скопированному сообщению
-        await bot.send_message(
-            SUPPORT_CHAT_ID, 
-            f"[ID:{message.from_user.id}] @{message.from_user.username or 'нет_username'}",
-            reply_to_message_id=copied_msg.message_id
-        )
-        
-        await message.answer("Ваше сообщение отправлено в техподдержку 💬\nСкоро с вами свяжется специалист.")
-        await state.clear()
-        
-    except Exception as e:
-        logging.error(f"Ошибка при отправке в поддержку: {e}")
-        await message.answer("Произошла ошибка при отправке. Попробуйте позже.")
-
-# Обработчик ответов из чата поддержки
-@dp.message(lambda message: message.chat.id == SUPPORT_CHAT_ID)
-async def handle_support_responses(message: types.Message, bot: Bot):
-    try:
-        # Игнорируем сообщения от бота
-        if message.from_user.is_bot:
-            return
-            
-        # Обрабатываем только ответы (reply)
-        if not message.reply_to_message:
-            return
-            
-        user_id = None
-        
-        # Если отвечают на сообщение с [ID:...]
-        if message.reply_to_message.text and message.reply_to_message.text.startswith("[ID:"):
-            try:
-                id_part = message.reply_to_message.text.split("]")[0][4:]
-                user_id = int(id_part)
-            except (ValueError, IndexError):
-                pass
-        
-        # Если отвечают на скопированное сообщение пользователя,
-        # ищем связанное сообщение с ID (которое было отправлено как reply)
-        elif message.reply_to_message.reply_to_message and message.reply_to_message.reply_to_message.text:
-            # Проверяем, есть ли reply к replied сообщению с ID
-            reply_text = message.reply_to_message.reply_to_message.text
-            if reply_text.startswith("[ID:"):
-                try:
-                    id_part = reply_text.split("]")[0][4:]
-                    user_id = int(id_part)
-                except (ValueError, IndexError):
-                    pass
-        
-        if user_id:
-            # Пересылаем ответ пользователю
-            await message.copy_to(chat_id=user_id)
-            
-            # Подтверждение в чат поддержки
-            await bot.send_message(
-                SUPPORT_CHAT_ID,
-                f"✅ Ответ отправлен пользователю {user_id}",
-                reply_to_message_id=message.message_id
-            )
-            logging.info(f"Ответ переслан пользователю {user_id}")
-        else:
-            await bot.send_message(
-                SUPPORT_CHAT_ID,
-                "❌ Не удалось определить получателя. Ответьте на сообщение с [ID:...]"
-            )
-            
-    except Exception as e:
-        logging.error(f"Ошибка обработки ответа поддержки: {e}")
+# Обработчик для кнопки "Обратиться в поддержку" - теперь в support_handler.py
 
 # Функция для удаления вебхука
 async def delete_webhook():
@@ -253,24 +173,23 @@ async def handle_location(message: Message):
 
     await message.reply(response, parse_mode="HTML")
 
-# Fallback обработчик для неизвестных сообщений (исключаем чат поддержки)
-@dp.message(lambda message: message.chat.id != SUPPORT_CHAT_ID)
+# Fallback обработчик для неизвестных сообщений (только приватные чаты)
+@dp.message(lambda message: (
+    message.chat.id != SUPPORT_TICKETS_CHAT_ID and 
+    message.chat.type == "private" and
+    message.from_user.id not in [info.get('support_user_id') for info in getattr(support_router, 'active_dialogs', {}).values()]
+))
 async def fallback_handler(message: types.Message, bot: Bot):
     # Если текст совпадает с известными кнопками — не обрабатываем
     if message.text and message.text.strip() in KNOWN_BUTTON_TEXTS:
         return
 
-    # Пересылаем неизвестные сообщения в техподдержку
-    try:
-        await message.forward(chat_id=SUPPORT_CHAT_ID)
-        await bot.send_message(
-            SUPPORT_CHAT_ID,
-            f"[ID:{message.from_user.id}] @{message.from_user.username or 'нет_username'} - автоматическая пересылка"
-        )
-        await message.answer("Ваше сообщение передано в службу поддержки 💬\n"
-                           "Мы свяжемся с вами в ближайшее время!")
-    except Exception as e:
-        logging.error(f"Ошибка при пересылке сообщения: {e}")
+    # Направляем к боту для получения помощи
+    await message.answer(
+        "🤖 Я не понял ваш запрос.\n\n"
+        "Для получения помощи воспользуйтесь кнопкой '❓ Обратиться в поддержку' или выберите нужный раздел из меню.",
+        reply_markup=get_start_keyboard()
+    )
 
 dp.include_router(router)
 
