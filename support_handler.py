@@ -28,9 +28,7 @@ class SupportConversation(StatesGroup):
     waiting_for_additional_info = State()
 
 # --- Словари для активных диалогов ---
-# {client_id: support_agent_id}
 active_dialogs = {}
-# {support_agent_id: client_id}
 support_to_user_map = {}
 
 router = Router()
@@ -39,7 +37,6 @@ router = Router()
 # 1. НАЧАЛО ДИАЛОГА: Пользователь нажимает кнопку "Задать вопрос"
 @router.message(F.text == "❓ Задать вопрос")
 async def start_support_dialog(message: types.Message, state: FSMContext):
-    # Если пользователь уже в активном диалоге, не даем начать новый
     if message.from_user.id in active_dialogs:
         await message.answer("Вы уже ведете диалог со специалистом. Пожалуйста, завершите его, прежде чем начинать новый.")
         return
@@ -51,7 +48,7 @@ async def start_support_dialog(message: types.Message, state: FSMContext):
     await state.set_state(SupportConversation.waiting_for_first_message)
 
 
-# 2. ПЕРВОЕ СООБЩЕНИЕ ОТ КЛИЕНТА
+# 2. ПЕРВОЕ СООБЩЕНИЕ ОТ КЛИЕНТА (ИСПРАВЛЕНО)
 @router.message(SupportConversation.waiting_for_first_message)
 async def process_first_question(message: types.Message, state: FSMContext, bot: Bot):
     user = message.from_user
@@ -71,11 +68,19 @@ async def process_first_question(message: types.Message, state: FSMContext, bot:
                 callback_data=f"start_dialog:{user.id}:{ticket_id}"
             )]
         ])
-        await bot.send_message(SUPPORT_TICKETS_CHAT_ID, ticket_caption)
-        await message.copy_to(
-            chat_id=SUPPORT_TICKETS_CHAT_ID,
+        
+        # ===== ИЗМЕНЕНИЕ 1: Отправляем сообщение с тикетом И КНОПКОЙ =====
+        # Теперь кнопка всегда будет на сообщении с текстом, которое можно редактировать.
+        await bot.send_message(
+            SUPPORT_TICKETS_CHAT_ID, 
+            ticket_caption,
             reply_markup=start_dialog_button
         )
+        
+        # ===== ИЗМЕНЕНИЕ 2: Копируем сообщение от пользователя БЕЗ кнопки =====
+        # Это просто контекст для специалиста.
+        await message.copy_to(chat_id=SUPPORT_TICKETS_CHAT_ID)
+        
         await message.answer(QUICK_RESPONSE_FIRST)
         await state.set_state(SupportConversation.waiting_for_additional_info)
         logging.info(f"Создан тикет {ticket_id} для пользователя {user.id}")
@@ -106,7 +111,7 @@ async def process_additional_info(message: types.Message, state: FSMContext, bot
     await state.clear()
 
 
-# 4. СОТРУДНИК НАЧИНАЕТ ДИАЛОГ
+# 4. СОТРУДНИК НАЧИНАЕТ ДИАЛОГ (ИСПРАВЛЕНО)
 @router.callback_query(F.data.startswith("start_dialog:"))
 async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot):
     _, user_id_str, ticket_id = callback.data.split(":")
@@ -120,19 +125,18 @@ async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot):
         await callback.answer("Вы уже ведете диалог с другим клиентом. Завершите его командой /end, чтобы взять новый.", show_alert=True)
         return
 
-    # === УСТАНОВКА СВЯЗИ ===
     active_dialogs[user_id] = support_agent.id
     support_to_user_map[support_agent.id] = user_id
     logging.info(f"Установлена связь: Клиент {user_id} <-> Специалист {support_agent.id} (Тикет {ticket_id})")
-    logging.info(f"active_dialogs: {active_dialogs}")
-    logging.info(f"support_to_user_map: {support_to_user_map}")
-
-    original_message_text = callback.message.html_text if callback.message.html_text else callback.message.text
-
+    
+    # ===== ИЗМЕНЕНИЕ 3: Логика редактирования теперь надежна =====
+    # Мы знаем, что callback.message - это наше сообщение с текстом, поэтому ошибка исключена.
     await callback.message.edit_text(
-        f"{original_message_text}\n\n"
+        f"{callback.message.html_text}\n\n"
         f"✅ <b>В работе у:</b> {support_agent.full_name} (@{support_agent.username or ''})",
+        reply_markup=None # Убираем кнопку, чтобы ее не нажал кто-то еще
     )
+    
     await bot.send_message(
         user_id,
         "👨‍💼 Здравствуйте! С вами на связи специалист поддержки. Теперь вы можете задать все уточняющие вопросы здесь."
@@ -146,22 +150,13 @@ async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot):
     await callback.answer("Вы начали диалог. Клиент уведомлен.")
 
 
-# 5. ОСНОВНАЯ ЛОГИКА ПЕРЕСЫЛКИ СООБЩЕНИЙ (ПОЛНОСТЬЮ ПЕРЕРАБОТАНА)
+# 5. ОСНОВНАЯ ЛОГИКА ПЕРЕСЫЛКИ СООБЩЕНИЙ
 @router.message(lambda message: message.from_user.id in active_dialogs or message.from_user.id in support_to_user_map)
 async def message_relay(message: types.Message, bot: Bot):
     sender_id = message.from_user.id
-    logging.info(f"Relay: Получено сообщение от {sender_id}. Проверяем маршрут.")
 
-    # Сценарий 1: Сообщение от клиента, который находится в активном диалоге
     if sender_id in active_dialogs:
         recipient_id = active_dialogs[sender_id]
-        logging.info(f"Маршрут: Клиент ({sender_id}) -> Специалист ({recipient_id})")
-        
-        # Проверка на самоотправку (на всякий случай)
-        if sender_id == recipient_id:
-            logging.error(f"КРИТИЧЕСКАЯ ОШИБКА: Обнаружена попытка отправки сообщения самому себе! Клиент: {sender_id}")
-            return
-            
         try:
             await message.copy_to(chat_id=recipient_id)
         except Exception as e:
@@ -169,37 +164,18 @@ async def message_relay(message: types.Message, bot: Bot):
             await message.answer("Не удалось доставить ваше сообщение специалисту. Пожалуйста, попробуйте еще раз.")
         return
 
-    # Сценарий 2: Сообщение от специалиста, который ведет диалог
     elif sender_id in support_to_user_map:
         recipient_id = support_to_user_map[sender_id]
-        logging.info(f"Маршрут: Специалист ({sender_id}) -> Клиент ({recipient_id})")
-
-        # Проверка на самоотправку
-        if sender_id == recipient_id:
-            logging.error(f"КРИТИЧЕСКАЯ ОШИБКА: Обнаружена попытка отправки сообщения самому себе! Специалист: {sender_id}")
-            return
-            
-        # Проверка команды завершения диалога
         if message.text and message.text.lower().startswith('/end'):
             logging.info(f"Специалист {sender_id} завершает диалог с клиентом {recipient_id}.")
-            
-            # === РАЗРЫВ СВЯЗИ ===
             del active_dialogs[recipient_id]
             del support_to_user_map[sender_id]
-            logging.info(f"Связь разорвана. active_dialogs: {active_dialogs}, support_to_user_map: {support_to_user_map}")
-            
             await bot.send_message(recipient_id, "Диалог со специалистом поддержки завершен. Спасибо за обращение!", reply_markup=get_start_keyboard())
             await message.answer("Вы успешно завершили диалог. Чтобы взять новый тикет, перейдите в группу.")
             return
-            
-        # Пересылка обычного сообщения клиенту
         try:
             await message.copy_to(chat_id=recipient_id)
         except Exception as e:
             logging.error(f"Ошибка пересылки от специалиста ({sender_id}) клиенту ({recipient_id}): {e}")
             await message.answer("Не удалось доставить ваше сообщение клиенту. Возможно, он заблокировал бота или произошла ошибка.")
         return
-    
-    # Этот блок не должен сработать из-за фильтра в декораторе, но он здесь для надежности
-    else:
-        logging.warning(f"Relay: Сообщение от {sender_id} прошло фильтр, но не подошло ни под один сценарий.")
