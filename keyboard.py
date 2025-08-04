@@ -1,6 +1,6 @@
 # keyboard.py (ОБНОВЛЕННАЯ ВЕРСИЯ)
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-from constants import PROMOTION_BUTTON_TEXT, ADDRESS_BUTTON_TEXT, SUPPORT_BUTTON_TEXT
+from constants import PROMOTION_BUTTON_TEXT, ADDRESS_BUTTON_TEXT, SUPPORT_BUTTON_TEXT, END_DIALOG_BUTTON_TEXT
 
 def get_start_keyboard():
     """Возвращает основную клавиатуру с шорткатами."""
