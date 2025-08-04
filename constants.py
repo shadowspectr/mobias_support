@@ -1,7 +1,7 @@
 # constants.py (ОБНОВЛЕННАЯ ВЕРСИЯ)
 
 # --- ID Чатов ---
-SUPPORT_TICKETS_CHAT_ID = -4961897884
+SUPPORT_TICKETS_CHAT_ID = -1002837608854
 ADMIN_USER_ID = 12345678 # Замените на ваш ID для отладки
 
 # --- Таймаут ---
