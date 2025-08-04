@@ -1,17 +1,18 @@
 # support_handler.py (ФИНАЛЬНАЯ ВЕРСИЯ)
 import logging
+import asyncio
 from datetime import datetime
 from aiogram import Router, types, Bot, F, Dispatcher
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from keyboard import get_back_to_menu_keyboard
-# Импортируем константы
-from constants import SUPPORT_BUTTON_TEXT, KNOWN_BUTTONS
+from keyboard import get_back_to_menu_keyboard, get_start_keyboard, get_end_dialog_keyboard
+from constants import SUPPORT_BUTTON_TEXT, KNOWN_BUTTONS, END_DIALOG_BUTTON_TEXT
 
 # --- КОНФИГУРАЦИЯ ---
 SUPPORT_TICKETS_CHAT_ID = -4961897884
 ADMIN_USER_ID = 12345678 # Замените на ваш ID для отладки
+DIALOG_TIMEOUT_SECONDS = 5 * 3600  # 5 часов
 
 # --- ТЕКСТЫ БЫСТРЫХ ОТВЕТОВ ---
 QUICK_RESPONSE_FIRST = """🤖 Спасибо за обращение! 
@@ -29,17 +30,58 @@ class SupportConversation(StatesGroup):
     waiting_for_first_message = State()
     waiting_for_additional_info = State()
 
-# --- Словари для активных диалогов ---
+# --- Словари для диалогов и задач тайм-аута ---
 active_dialogs = {}
 support_to_user_map = {}
+timeout_tasks = {} # {user_id: asyncio.Task}
 
 router = Router()
+
+
+# --- ВНУТРЕННЯЯ ФУНКЦИЯ ЗАВЕРШЕНИЯ ДИАЛОГА ---
+async def _end_dialog(user_id: int, bot: Bot, reason: str = "Диалог завершен."):
+    """Универсальная функция для завершения диалога."""
+    if user_id not in active_dialogs:
+        return
+
+    support_agent_id = active_dialogs[user_id]
+    
+    # 1. Отменяем задачу тайм-аута, если она есть
+    if user_id in timeout_tasks:
+        timeout_tasks[user_id].cancel()
+        del timeout_tasks[user_id]
+        logging.info(f"Задача тайм-аута для пользователя {user_id} отменена.")
+
+    # 2. Удаляем из словарей
+    del active_dialogs[user_id]
+    if support_agent_id in support_to_user_map:
+        del support_to_user_map[support_agent_id]
+
+    # 3. Отправляем уведомления
+    try:
+        await bot.send_message(user_id, f"❗️ {reason}\n\nЕсли у вас остались вопросы, вы можете задать их снова.", reply_markup=get_start_keyboard())
+        if support_agent_id:
+            await bot.send_message(support_agent_id, f"✅ Диалог с пользователем {user_id} завершен. Причина: {reason}")
+        logging.info(f"Диалог для {user_id} и {support_agent_id} завершен. Причина: {reason}")
+    except Exception as e:
+        logging.error(f"Ошибка при отправке уведомлений о завершении диалога {user_id}: {e}")
+
+# --- ХРАНИТЕЛЬ ТАЙМ-АУТА ---
+async def _dialog_timeout_watcher(user_id: int, bot: Bot):
+    """Фоновая задача, которая ждет 5 часов и закрывает диалог."""
+    try:
+        await asyncio.sleep(DIALOG_TIMEOUT_SECONDS)
+        logging.info(f"Сработал тайм-аут 5 часов для пользователя {user_id}. Закрываю диалог.")
+        await _end_dialog(user_id, bot, reason="Диалог был автоматически завершен из-за отсутствия активности.")
+    except asyncio.CancelledError:
+        logging.info(f"Хранитель тайм-аута для {user_id} был успешно отменен.")
+    except Exception as e:
+        logging.error(f"Ошибка в хранителе тайм-аута для {user_id}: {e}")
 
 
 # 1. НАЧАЛО ДИАЛОГА
 @router.message(F.text == SUPPORT_BUTTON_TEXT)
 async def start_support_dialog(message: types.Message, state: FSMContext):
-    # Добавляем проверку, чтобы пользователь не запускал процесс заново
     current_state = await state.get_state()
     if current_state in {SupportConversation.waiting_for_first_message, SupportConversation.waiting_for_additional_info}:
         await message.answer("Вы уже находитесь в процессе создания обращения. Просто отправьте ваше сообщение.")
@@ -55,7 +97,6 @@ async def start_support_dialog(message: types.Message, state: FSMContext):
         reply_markup=get_back_to_menu_keyboard()
     )
     await state.set_state(SupportConversation.waiting_for_first_message)
-
 
 # 2. ПЕРВОЕ СООБЩЕНИЕ ОТ КЛИЕНТА
 @router.message(SupportConversation.waiting_for_first_message)
@@ -87,16 +128,16 @@ async def process_first_question(message: types.Message, state: FSMContext, bot:
         await state.set_state(SupportConversation.waiting_for_additional_info)
         logging.info(f"Создан тикет {ticket_id} для пользователя {user.id}")
     except Exception as e:
-        logging.error(f"Не удалось создать тикет #{ticket_id}: {e}")
+        logging.error(f"Не удалось создать тикет #{ticket_id} для {user.id}: {e}")
         await bot.send_message(ADMIN_USER_ID, f"Ошибка создания тикета для {user.id}: {e}")
         await message.answer("Произошла ошибка при создании вашего обращения. Пожалуйста, попробуйте позже.")
         await state.clear()
 
-
 # 3. ДОПОЛНИТЕЛЬНАЯ ИНФОРМАЦИЯ ОТ КЛИЕНТА
-@router.message(SupportConversation.waiting_for_additional_info,
-    # Фильтр теперь проверяет, что сообщение - НЕ одна из известных кнопок
-    lambda message: message.text not in KNOWN_BUTTONS)
+@router.message(
+    SupportConversation.waiting_for_additional_info,
+    lambda message: message.text not in KNOWN_BUTTONS
+)
 async def process_additional_info(message: types.Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     ticket_id = data.get('ticket_id', 'N/A')
@@ -130,11 +171,13 @@ async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot, dispatche
 
     user_state: FSMContext = dispatcher.fsm.resolve_context(bot, chat_id=user_id, user_id=user_id)
     await user_state.clear()
-    logging.info(f"Состояние для пользователя {user_id} очищено. Начинается прямой диалог.")
-
+    
     active_dialogs[user_id] = support_agent.id
     support_to_user_map[support_agent.id] = user_id
-    logging.info(f"Установлена связь: Клиент {user_id} <-> Специалист {support_agent.id} (Тикет {ticket_id})")
+
+    task = asyncio.create_task(_dialog_timeout_watcher(user_id, bot))
+    timeout_tasks[user_id] = task
+    logging.info(f"Запущена задача тайм-аута для пользователя {user_id}.")
     
     await callback.message.edit_text(
         f"{callback.message.html_text}\n\n"
@@ -144,7 +187,8 @@ async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot, dispatche
     
     await bot.send_message(
         user_id,
-        "👨‍💼 Здравствуйте! С вами на связи специалист поддержки. Теперь вы можете задать все уточняющие вопросы здесь."
+        "👨‍💼 Здравствуйте! С вами на связи специалист поддержки. Теперь вы можете задать все уточняющие вопросы здесь.",
+        reply_markup=get_end_dialog_keyboard()
     )
     await bot.send_message(
         support_agent.id,
@@ -155,7 +199,18 @@ async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot, dispatche
     await callback.answer("Вы начали диалог. Клиент уведомлен.")
 
 
-# 5. ОСНОВНАЯ ЛОГИКА ПЕРЕСЫЛКИ СООБЩЕНИЙ
+# 5. ПОЛЬЗОВАТЕЛЬ ЗАВЕРШАЕТ ДИАЛОГ
+@router.message(F.text == END_DIALOG_BUTTON_TEXT)
+async def user_ends_dialog(message: types.Message, bot: Bot):
+    user_id = message.from_user.id
+    if user_id not in active_dialogs:
+        await message.answer("У вас нет активных диалогов.", reply_markup=get_start_keyboard())
+        return
+    
+    await _end_dialog(user_id, bot, reason="Диалог завершен пользователем.")
+
+
+# 6. ОСНОВНАЯ ЛОГИКА ПЕРЕСЫЛКИ
 @router.message(
     lambda message: (
         message.from_user.id in active_dialogs or message.from_user.id in support_to_user_map
@@ -163,7 +218,14 @@ async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot, dispatche
 )
 async def message_relay(message: types.Message, bot: Bot):
     sender_id = message.from_user.id
+
     if sender_id in active_dialogs:
+        if sender_id in timeout_tasks:
+            timeout_tasks[sender_id].cancel()
+        task = asyncio.create_task(_dialog_timeout_watcher(sender_id, bot))
+        timeout_tasks[sender_id] = task
+        logging.info(f"Активность от пользователя {sender_id}. Таймер тайм-аута перезапущен.")
+        
         recipient_id = active_dialogs[sender_id]
         try:
             await message.copy_to(chat_id=recipient_id)
@@ -171,18 +233,16 @@ async def message_relay(message: types.Message, bot: Bot):
             logging.error(f"Ошибка пересылки от клиента ({sender_id}) специалисту ({recipient_id}): {e}")
             await message.answer("Не удалось доставить ваше сообщение специалисту. Пожалуйста, попробуйте еще раз.")
         return
+
     elif sender_id in support_to_user_map:
-        recipient_id = support_to_user_map[sender_id]
+        user_id = support_to_user_map[sender_id]
         if message.text and message.text.lower().startswith('/end'):
-            logging.info(f"Специалист {sender_id} завершает диалог с клиентом {recipient_id}.")
-            del active_dialogs[recipient_id]
-            del support_to_user_map[sender_id]
-            await bot.send_message(recipient_id, "Диалог со специалистом поддержки завершен. Спасибо за обращение!", reply_markup=get_start_keyboard())
-            await message.answer("Вы успешно завершили диалог. Чтобы взять новый тикет, перейдите в группу.")
+            await _end_dialog(user_id, bot, reason="Диалог завершен специалистом.")
             return
+
         try:
-            await message.copy_to(chat_id=recipient_id)
+            await message.copy_to(chat_id=user_id)
         except Exception as e:
-            logging.error(f"Ошибка пересылки от специалиста ({sender_id}) клиенту ({recipient_id}): {e}")
+            logging.error(f"Ошибка пересылки от специалиста ({sender_id}) клиенту ({user_id}): {e}")
             await message.answer("Не удалось доставить ваше сообщение клиенту. Возможно, он заблокировал бота или произошла ошибка.")
         return

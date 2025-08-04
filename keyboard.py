@@ -15,6 +15,15 @@ def get_start_keyboard():
     )
     return keyboard
 
+def get_end_dialog_keyboard():
+    """Возвращает клавиатуру с кнопкой завершения диалога."""
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=END_DIALOG_BUTTON_TEXT)]
+        ],
+        resize_keyboard=True
+    )
+    return keyboard
 def get_back_to_menu_keyboard():
     """Возвращает инлайн-клавиатуру для возврата в главное меню."""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
