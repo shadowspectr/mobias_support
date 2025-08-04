@@ -7,7 +7,10 @@ from aiogram.filters import Command
 from aiogram.types import FSInputFile
 from keyboard import get_start_keyboard
 # Импортируем тексты кнопок из констант
-from constants import ADDRESS_BUTTON_TEXT, PROMOTION_BUTTON_TEXT
+from constants import (
+    ADDRESS_BUTTON_TEXT, PROMOTION_BUTTON_TEXT, 
+    SUPPORT_TICKETS_CHAT_ID  # Добавляем импорт
+)
 
 router = Router()
 
@@ -39,7 +42,6 @@ async def show_shop_addresses(message: types.Message):
 
 @router.message(F.text == PROMOTION_BUTTON_TEXT)
 async def handle_promotions(message: types.Message, bot: Bot):
-    # ... код обработчика акций без изменений ...
     try:
         if not os.path.exists(PROMOTIONS_FILE):
             await message.answer("К сожалению, сейчас нет доступных акций. Загляните позже!")
@@ -67,9 +69,7 @@ async def process_open_main(callback: types.CallbackQuery):
     await callback.message.answer("Вы вернулись в главное меню.", reply_markup=get_start_keyboard())
     await callback.answer()
 
-# ===== ОБРАБОТЧИК ПО УМОЛЧАНИЮ ОТСЮДА УДАЛЕН! =====
-
-# --- Fallback Handler ВОЗВРАЩАЕТСЯ СЮДА ---
+# --- Fallback Handler ---
 @router.message()
 async def fallback_handler(message: types.Message):
     # Игнорируем сообщения в чате поддержки

@@ -1,4 +1,4 @@
-# support_handler.py (ПОЛНЫЙ ФАЙЛ)
+# support_handler.py (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 import logging
 import asyncio
 from datetime import datetime
@@ -10,7 +10,8 @@ from keyboard import get_back_to_menu_keyboard, get_start_keyboard, get_end_dial
 # ===== ИЗМЕНЕНИЕ: Импортируем все константы =====
 from constants import (
     SUPPORT_BUTTON_TEXT, KNOWN_BUTTONS, END_DIALOG_BUTTON_TEXT,
-    SUPPORT_TICKETS_CHAT_ID, ADMIN_USER_ID, DIALOG_TIMEOUT_SECONDS
+    SUPPORT_TICKETS_CHAT_ID, ADMIN_USER_ID, DIALOG_TIMEOUT_SECONDS,
+    ADDRESS_BUTTON_TEXT, PROMOTION_BUTTON_TEXT  # Добавляем импорт кнопок
 )
 
 # --- КОНФИГУРАЦИЯ ---
@@ -75,6 +76,113 @@ async def start_support_dialog(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("💬 Пожалуйста, опишите ваш вопрос или проблему одним сообщением. Можете приложить фото или видео.", reply_markup=get_back_to_menu_keyboard())
     await state.set_state(SupportConversation.waiting_for_first_message)
+
+# ===== ИСПРАВЛЕНИЕ: Добавляем обработчики кнопок меню в состояниях FSM =====
+@router.message(SupportConversation.waiting_for_first_message, F.text == ADDRESS_BUTTON_TEXT)
+async def handle_address_in_support_state(message: types.Message, state: FSMContext):
+    """Обработка кнопки адресов в состоянии ожидания вопроса"""
+    addresses = (
+        "📍 <b>Г. Мелитополь, Пр-т Б. Хмельницкого 24</b>\n"
+        "🏢 ТЦ Пассаж, вход 2\n"
+        "⏰ С 9:00 до 17:00\n\n"
+        "📍 <b>Г. Мелитополь, Пр-т Б. Хмельницкого 30</b>\n"
+        "⏰ С 9:00 до 18:00\n\n"
+        "📍 <b>Г. Мелитополь, ул. Кирова 94</b>\n"
+        "🏢 ТЦ Люкс, 1-й этаж\n"
+        "⏰ С 9:00 до 18:00"
+    )
+    await message.answer(addresses)
+    # Состояние остается прежним - пользователь все еще может задать вопрос
+
+@router.message(SupportConversation.waiting_for_additional_info, F.text == ADDRESS_BUTTON_TEXT)
+async def handle_address_in_additional_info_state(message: types.Message, state: FSMContext):
+    """Обработка кнопки адресов в состоянии ожидания доп. информации"""
+    addresses = (
+        "📍 <b>Г. Мелитополь, Пр-т Б. Хмельницкого 24</b>\n"
+        "🏢 ТЦ Пассаж, вход 2\n"
+        "⏰ С 9:00 до 17:00\n\n"
+        "📍 <b>Г. Мелитополь, Пр-т Б. Хмельницкого 30</b>\n"
+        "⏰ С 9:00 до 18:00\n\n"
+        "📍 <b>Г. Мелитополь, ул. Кирова 94</b>\n"
+        "🏢 ТЦ Люкс, 1-й этаж\n"
+        "⏰ С 9:00 до 18:00"
+    )
+    await message.answer(addresses)
+
+@router.message(SupportConversation.waiting_for_first_message, F.text == PROMOTION_BUTTON_TEXT)
+async def handle_promotions_in_support_state(message: types.Message, state: FSMContext, bot: Bot):
+    """Обработка кнопки акций в состоянии ожидания вопроса"""
+    import json
+    import os
+    from aiogram.types import FSInputFile
+    
+    # --- Константы для папки с акциями ---
+    ADS_DIR = "ads"
+    PROMOTIONS_FILE = os.path.join(ADS_DIR, "promotions.json")
+    
+    try:
+        if not os.path.exists(PROMOTIONS_FILE):
+            await message.answer("К сожалению, сейчас нет доступных акций. Загляните позже!")
+            return
+        with open(PROMOTIONS_FILE, "r", encoding="utf-8") as f:
+            ads_data = json.load(f)
+        if not ads_data:
+            await message.answer("В данный момент активных акций нет. Следите за обновлениями!")
+            return
+        for ad in ads_data:
+            text = ad.get("text", "")
+            image_path = os.path.join(ADS_DIR, ad.get("image", ""))
+            if os.path.exists(image_path):
+                await bot.send_photo(chat_id=message.chat.id, photo=FSInputFile(image_path), caption=text)
+            else:
+                await message.answer(text)
+    except Exception as e:
+        logging.error(f"Ошибка при отправке акций: {e}")
+        await message.answer("Произошла ошибка при загрузке акций.")
+
+@router.message(SupportConversation.waiting_for_additional_info, F.text == PROMOTION_BUTTON_TEXT)
+async def handle_promotions_in_additional_info_state(message: types.Message, state: FSMContext, bot: Bot):
+    """Обработка кнопки акций в состоянии ожидания доп. информации"""
+    import json
+    import os
+    from aiogram.types import FSInputFile
+    
+    # --- Константы для папки с акциями ---
+    ADS_DIR = "ads"
+    PROMOTIONS_FILE = os.path.join(ADS_DIR, "promotions.json")
+    
+    try:
+        if not os.path.exists(PROMOTIONS_FILE):
+            await message.answer("К сожалению, сейчас нет доступных акций. Загляните позже!")
+            return
+        with open(PROMOTIONS_FILE, "r", encoding="utf-8") as f:
+            ads_data = json.load(f)
+        if not ads_data:
+            await message.answer("В данный момент активных акций нет. Следите за обновлениями!")
+            return
+        for ad in ads_data:
+            text = ad.get("text", "")
+            image_path = os.path.join(ADS_DIR, ad.get("image", ""))
+            if os.path.exists(image_path):
+                await bot.send_photo(chat_id=message.chat.id, photo=FSInputFile(image_path), caption=text)
+            else:
+                await message.answer(text)
+    except Exception as e:
+        logging.error(f"Ошибка при отправке акций: {e}")
+        await message.answer("Произошла ошибка при загрузке акций.")
+
+# ===== ИСПРАВЛЕНИЕ: Обработка кнопки "Назад в меню" =====
+@router.message(SupportConversation.waiting_for_first_message, F.text.in_(["🔙 Назад в меню", "Назад в меню"]))
+async def back_to_menu_from_first_message(message: types.Message, state: FSMContext):
+    """Возврат в меню из состояния ожидания первого сообщения"""
+    await state.clear()
+    await message.answer("Вы вернулись в главное меню.", reply_markup=get_start_keyboard())
+
+@router.message(SupportConversation.waiting_for_additional_info, F.text.in_(["🔙 Назад в меню", "Назад в меню"]))
+async def back_to_menu_from_additional_info(message: types.Message, state: FSMContext):
+    """Возврат в меню из состояния ожидания дополнительной информации"""
+    await state.clear()
+    await message.answer("Вы вернулись в главное меню.", reply_markup=get_start_keyboard())
 
 @router.message(SupportConversation.waiting_for_first_message)
 async def process_first_question(message: types.Message, state: FSMContext, bot: Bot):
