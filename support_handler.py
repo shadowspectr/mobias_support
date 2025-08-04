@@ -59,10 +59,11 @@ async def process_first_question(message: types.Message, state: FSMContext, bot:
         f"🆔 <b>User ID:</b> <code>{user.id}</code>"
     )
     try:
+        # ===== ИЗМЕНЕНИЕ 1: Используем ':' как разделитель =====
         start_dialog_button = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
                 text="💬 Начать диалог с клиентом",
-                callback_data=f"start_dialog_{user.id}_{ticket_id}"
+                callback_data=f"start_dialog:{user.id}:{ticket_id}"
             )]
         ])
         await bot.send_message(SUPPORT_TICKETS_CHAT_ID, ticket_caption)
@@ -101,9 +102,10 @@ async def process_additional_info(message: types.Message, state: FSMContext, bot
 
 
 # 4. СОТРУДНИК НАЧИНАЕТ ДИАЛОГ
-@router.callback_query(F.data.startswith("start_dialog_"))
+@router.callback_query(F.data.startswith("start_dialog:"))
 async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot):
-    _, user_id_str, ticket_id = callback.data.split("_")
+    # ===== ИЗМЕНЕНИЕ 2: Разделяем по ':' и распаковываем 3 значения =====
+    _, user_id_str, ticket_id = callback.data.split(":")
     user_id = int(user_id_str)
     support_agent = callback.from_user
 
@@ -115,8 +117,10 @@ async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot):
     support_to_user_map[support_agent.id] = user_id
     logging.info(f"Сотрудник {support_agent.id} начал диалог с клиентом {user_id} (тикет {ticket_id})")
 
+    original_message_text = callback.message.html_text if callback.message.html_text else callback.message.text
+
     await callback.message.edit_text(
-        f"{callback.message.html_text}\n\n"
+        f"{original_message_text}\n\n"
         f"✅ <b>В работе у:</b> {support_agent.full_name} (@{support_agent.username or ''})",
     )
     await bot.send_message(
@@ -133,11 +137,8 @@ async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot):
 
 
 # 5. ОСНОВНАЯ ЛОГИКА ПЕРЕСЫЛКИ СООБЩЕНИЙ
-# ===== ИЗМЕНЕНИЕ ЗДЕСЬ =====
-# Мы добавили фильтр-лямбду, чтобы этот обработчик срабатывал только для участников активного диалога
 @router.message(lambda message: message.from_user.id in active_dialogs or message.from_user.id in support_to_user_map)
 async def message_relay(message: types.Message, bot: Bot):
-    # Если это сообщение от клиента, который в активном диалоге
     if message.from_user.id in active_dialogs:
         support_chat_id = active_dialogs[message.from_user.id]
         try:
@@ -147,10 +148,8 @@ async def message_relay(message: types.Message, bot: Bot):
             await message.answer("Не удалось доставить ваше сообщение. Попробуйте еще раз.")
         return
 
-    # Если это сообщение от сотрудника поддержки, который ведет диалог
     if message.from_user.id in support_to_user_map:
         user_id = support_to_user_map[message.from_user.id]
-
         if message.text and message.text.lower() == '/end':
             del active_dialogs[user_id]
             del support_to_user_map[message.from_user.id]
@@ -159,7 +158,6 @@ async def message_relay(message: types.Message, bot: Bot):
             await message.answer("Вы успешно завершили диалог. Чтобы взять новый тикет, перейдите в группу.")
             logging.info(f"Сотрудник {message.from_user.id} завершил диалог с {user_id}")
             return
-
         try:
             await message.copy_to(chat_id=user_id)
         except Exception as e:
