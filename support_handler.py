@@ -1,15 +1,15 @@
 # support_handler.py (ФИНАЛЬНАЯ ВЕРСИЯ)
 import logging
 from datetime import datetime
-from aiogram import Router, types, Bot, F
+from aiogram import Router, types, Bot, F, Dispatcher
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from keyboard import get_back_to_menu_keyboard, get_start_keyboard
 
 # --- КОНФИГУРАЦИЯ ---
-SUPPORT_TICKETS_CHAT_ID = -4961897884 # ID ОСНОВНОЙ ГРУППЫ ПОДДЕРЖКИ
-ADMIN_USER_ID = 12345678 # Замените на ID администратора
+SUPPORT_TICKETS_CHAT_ID = -4961897884
+ADMIN_USER_ID = 12345678 # Замените на ваш ID для отладки
 
 # --- ТЕКСТЫ БЫСТРЫХ ОТВЕТОВ ---
 QUICK_RESPONSE_FIRST = """🤖 Спасибо за обращение! 
@@ -78,7 +78,7 @@ async def process_first_question(message: types.Message, state: FSMContext, bot:
         await state.set_state(SupportConversation.waiting_for_additional_info)
         logging.info(f"Создан тикет {ticket_id} для пользователя {user.id}")
     except Exception as e:
-        logging.error(f"Не удалось создать тикет #{ticket_id} для {user.id}: {e}")
+        logging.error(f"Не удалось создать тикет #{ticket_id}: {e}")
         await bot.send_message(ADMIN_USER_ID, f"Ошибка создания тикета для {user.id}: {e}")
         await message.answer("Произошла ошибка при создании вашего обращения. Пожалуйста, попробуйте позже.")
         await state.clear()
@@ -95,18 +95,17 @@ async def process_additional_info(message: types.Message, state: FSMContext, bot
             f"📎 <b>Дополнение к тикету #{ticket_id}</b>"
         )
         await message.copy_to(chat_id=SUPPORT_TICKETS_CHAT_ID)
-        await message.answer(QUICK_RESPONSE_SECOND, reply_markup=get_start_keyboard())
-        logging.info(f"Получена доп. информация по тикету {ticket_id}")
+        await message.answer(QUICK_RESPONSE_SECOND)
+        logging.info(f"Получена доп. информация по тикету {ticket_id}. Пользователь остается в состоянии ожидания.")
     except Exception as e:
         logging.error(f"Не удалось переслать доп. инфо по тикету #{ticket_id}: {e}")
         await bot.send_message(ADMIN_USER_ID, f"Ошибка пересылки доп. инфо для {ticket_id}: {e}")
         await message.answer("Не удалось отправить дополнительную информацию. Специалист скоро свяжется с вами по основному вопросу.")
-    await state.clear()
 
 
 # 4. СОТРУДНИК НАЧИНАЕТ ДИАЛОГ
 @router.callback_query(F.data.startswith("start_dialog:"))
-async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot):
+async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot, dispatcher: Dispatcher):
     _, user_id_str, ticket_id = callback.data.split(":")
     user_id = int(user_id_str)
     support_agent = callback.from_user
@@ -115,8 +114,12 @@ async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot):
         await callback.answer("Другой сотрудник уже начал диалог с этим клиентом.", show_alert=True)
         return
     if support_agent.id in support_to_user_map:
-        await callback.answer("Вы уже ведете диалог с другим клиентом. Завершите его командой /end, чтобы взять новый.", show_alert=True)
+        await callback.answer("Вы уже ведете диалог с другим клиентом. Завершите его командой /end.", show_alert=True)
         return
+
+    user_state: FSMContext = dispatcher.fsm.resolve_context(bot, chat_id=user_id, user_id=user_id)
+    await user_state.clear()
+    logging.info(f"Состояние для пользователя {user_id} очищено. Начинается прямой диалог.")
 
     active_dialogs[user_id] = support_agent.id
     support_to_user_map[support_agent.id] = user_id
@@ -142,9 +145,6 @@ async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot):
 
 
 # 5. ОСНОВНАЯ ЛОГИКА ПЕРЕСЫЛКИ СООБЩЕНИЙ
-# ===== КЛЮЧЕВОЕ ИЗМЕНЕНИЕ =====
-# Добавлено условие: and message.chat.id != SUPPORT_TICKETS_CHAT_ID
-# Теперь этот обработчик ПОЛНОСТЬЮ игнорирует сообщения, написанные в группе поддержки.
 @router.message(
     lambda message: (
         message.from_user.id in active_dialogs or message.from_user.id in support_to_user_map
@@ -152,8 +152,6 @@ async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot):
 )
 async def message_relay(message: types.Message, bot: Bot):
     sender_id = message.from_user.id
-
-    # Сценарий 1: Сообщение от клиента -> специалисту
     if sender_id in active_dialogs:
         recipient_id = active_dialogs[sender_id]
         try:
@@ -162,11 +160,8 @@ async def message_relay(message: types.Message, bot: Bot):
             logging.error(f"Ошибка пересылки от клиента ({sender_id}) специалисту ({recipient_id}): {e}")
             await message.answer("Не удалось доставить ваше сообщение специалисту. Пожалуйста, попробуйте еще раз.")
         return
-
-    # Сценарий 2: Сообщение от специалиста -> клиенту
     elif sender_id in support_to_user_map:
         recipient_id = support_to_user_map[sender_id]
-        # Проверка команды завершения
         if message.text and message.text.lower().startswith('/end'):
             logging.info(f"Специалист {sender_id} завершает диалог с клиентом {recipient_id}.")
             del active_dialogs[recipient_id]
@@ -174,7 +169,6 @@ async def message_relay(message: types.Message, bot: Bot):
             await bot.send_message(recipient_id, "Диалог со специалистом поддержки завершен. Спасибо за обращение!", reply_markup=get_start_keyboard())
             await message.answer("Вы успешно завершили диалог. Чтобы взять новый тикет, перейдите в группу.")
             return
-        # Пересылка обычного сообщения
         try:
             await message.copy_to(chat_id=recipient_id)
         except Exception as e:
