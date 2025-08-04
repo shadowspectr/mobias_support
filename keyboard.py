@@ -1,13 +1,14 @@
-# keyboard.py
+# keyboard.py (ОБНОВЛЕННАЯ ВЕРСИЯ)
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from constants import PROMOTION_BUTTON_TEXT, ADDRESS_BUTTON_TEXT, SUPPORT_BUTTON_TEXT
 
 def get_start_keyboard():
     """Возвращает основную клавиатуру с шорткатами."""
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🏬 Адреса магазинов")],
-            [KeyboardButton(text="🎁 Актуальные акции")],
-            [KeyboardButton(text="❓ Задать вопрос")]
+            [KeyboardButton(text=ADDRESS_BUTTON_TEXT)],
+            [KeyboardButton(text=PROMOTION_BUTTON_TEXT)],
+            [KeyboardButton(text=SUPPORT_BUTTON_TEXT)]
         ],
         resize_keyboard=True,
         input_field_placeholder="Выберите действие из меню"

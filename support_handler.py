@@ -5,7 +5,9 @@ from aiogram import Router, types, Bot, F, Dispatcher
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from keyboard import get_back_to_menu_keyboard, get_start_keyboard
+from keyboard import get_back_to_menu_keyboard
+# Импортируем константы
+from constants import SUPPORT_BUTTON_TEXT, KNOWN_BUTTONS
 
 # --- КОНФИГУРАЦИЯ ---
 SUPPORT_TICKETS_CHAT_ID = -4961897884
@@ -35,11 +37,18 @@ router = Router()
 
 
 # 1. НАЧАЛО ДИАЛОГА
-@router.message(F.text == "❓ Задать вопрос")
+@router.message(F.text == SUPPORT_BUTTON_TEXT)
 async def start_support_dialog(message: types.Message, state: FSMContext):
+    # Добавляем проверку, чтобы пользователь не запускал процесс заново
+    current_state = await state.get_state()
+    if current_state in {SupportConversation.waiting_for_first_message, SupportConversation.waiting_for_additional_info}:
+        await message.answer("Вы уже находитесь в процессе создания обращения. Просто отправьте ваше сообщение.")
+        return
+        
     if message.from_user.id in active_dialogs:
         await message.answer("Вы уже ведете диалог со специалистом. Пожалуйста, завершите его, прежде чем начинать новый.")
         return
+        
     await state.clear()
     await message.answer(
         "💬 Пожалуйста, опишите ваш вопрос или проблему одним сообщением. Можете приложить фото или видео.",
@@ -85,7 +94,9 @@ async def process_first_question(message: types.Message, state: FSMContext, bot:
 
 
 # 3. ДОПОЛНИТЕЛЬНАЯ ИНФОРМАЦИЯ ОТ КЛИЕНТА
-@router.message(SupportConversation.waiting_for_additional_info)
+@router.message(SupportConversation.waiting_for_additional_info,
+    # Фильтр теперь проверяет, что сообщение - НЕ одна из известных кнопок
+    lambda message: message.text not in KNOWN_BUTTONS)
 async def process_additional_info(message: types.Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     ticket_id = data.get('ticket_id', 'N/A')

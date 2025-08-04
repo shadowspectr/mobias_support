@@ -7,6 +7,8 @@ from aiogram.filters import Command
 from aiogram.types import FSInputFile
 from keyboard import get_start_keyboard
 from support_handler import SUPPORT_TICKETS_CHAT_ID
+# Импортируем тексты кнопок из констант
+from constants import ADDRESS_BUTTON_TEXT, PROMOTION_BUTTON_TEXT
 
 router = Router()
 
@@ -23,7 +25,7 @@ async def cmd_start(message: types.Message):
         reply_markup=get_start_keyboard()
     )
 
-@router.message(F.text == "🏬 Адреса магазинов")
+@router.message(F.text == ADDRESS_BUTTON_TEXT)
 async def show_shop_addresses(message: types.Message):
     addresses = (
         "📍 <b>Г. Мелитополь, Пр-т Б. Хмельницкого 24</b>\n"
@@ -38,7 +40,7 @@ async def show_shop_addresses(message: types.Message):
     await message.answer(addresses)
 
 # --- Обработчик для кнопки "Актуальные акции" ---
-@router.message(F.text == "🎁 Актуальные акции")
+@router.message(F.text == PROMOTION_BUTTON_TEXT)
 async def handle_promotions(message: types.Message, bot: Bot):
     try:
         # Проверяем, существует ли файл с акциями
