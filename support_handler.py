@@ -1,4 +1,4 @@
-# support_handler.py (ФИНАЛЬНАЯ ВЕРСИЯ)
+# support_handler.py (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 import logging
 import asyncio
 from datetime import datetime
@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from keyboard import get_back_to_menu_keyboard, get_start_keyboard, get_end_dialog_keyboard
+# ===== ИСПРАВЛЕНИЕ ЗДЕСЬ: Добавлена переменная END_DIALOG_BUTTON_TEXT =====
 from constants import SUPPORT_BUTTON_TEXT, KNOWN_BUTTONS, END_DIALOG_BUTTON_TEXT
 
 # --- КОНФИГУРАЦИЯ ---
@@ -44,7 +45,7 @@ async def _end_dialog(user_id: int, bot: Bot, reason: str = "Диалог зав
     if user_id not in active_dialogs:
         return
 
-    support_agent_id = active_dialogs[user_id]
+    support_agent_id = active_dialogs.get(user_id) # .get() для безопасности
     
     # 1. Отменяем задачу тайм-аута, если она есть
     if user_id in timeout_tasks:
@@ -53,8 +54,9 @@ async def _end_dialog(user_id: int, bot: Bot, reason: str = "Диалог зав
         logging.info(f"Задача тайм-аута для пользователя {user_id} отменена.")
 
     # 2. Удаляем из словарей
-    del active_dialogs[user_id]
-    if support_agent_id in support_to_user_map:
+    if user_id in active_dialogs:
+        del active_dialogs[user_id]
+    if support_agent_id and support_agent_id in support_to_user_map:
         del support_to_user_map[support_agent_id]
 
     # 3. Отправляем уведомления
