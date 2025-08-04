@@ -7,7 +7,11 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from keyboard import get_back_to_menu_keyboard, get_start_keyboard, get_end_dialog_keyboard
-from constants import SUPPORT_BUTTON_TEXT, KNOWN_BUTTONS, END_DIALOG_BUTTON_TEXT
+# ===== ИЗМЕНЕНИЕ: Импортируем все константы =====
+from constants import (
+    SUPPORT_BUTTON_TEXT, KNOWN_BUTTONS, END_DIALOG_BUTTON_TEXT,
+    SUPPORT_TICKETS_CHAT_ID, ADMIN_USER_ID, DIALOG_TIMEOUT_SECONDS
+)
 
 # --- КОНФИГУРАЦИЯ ---
 SUPPORT_TICKETS_CHAT_ID = -4961897884

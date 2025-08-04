@@ -68,3 +68,18 @@ async def process_open_main(callback: types.CallbackQuery):
     await callback.answer()
 
 # ===== ОБРАБОТЧИК ПО УМОЛЧАНИЮ ОТСЮДА УДАЛЕН! =====
+
+# --- Fallback Handler ВОЗВРАЩАЕТСЯ СЮДА ---
+@router.message()
+async def fallback_handler(message: types.Message):
+    # Игнорируем сообщения в чате поддержки
+    if message.chat.id == SUPPORT_TICKETS_CHAT_ID:
+        return
+        
+    logging.warning(f"Неизвестный запрос от {message.from_user.id}: {message.text or '[нетекстовое сообщение]'}")
+    await message.answer(
+        "🤖 Я не совсем понял ваш запрос.\n\n"
+        "Пожалуйста, воспользуйтесь кнопками в меню.\n"
+        "Если вы хотите задать вопрос нашей поддержке, нажмите кнопку '❓ Задать вопрос'.",
+        reply_markup=get_start_keyboard()
+    )

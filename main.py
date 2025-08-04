@@ -1,14 +1,13 @@
-# main.py (ФИНАЛЬНАЯ ВЕРСИЯ)
+# main.py (ФИНАЛЬНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ)
 import asyncio
 import logging
 import os
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
-from support_handler import router as support_router, SUPPORT_TICKETS_CHAT_ID
+from support_handler import router as support_router
 from main_handlers import router as main_handlers_router
-from keyboard import get_start_keyboard
 import keep_alive
 
 # --- Загрузка и конфигурация ---
@@ -24,28 +23,14 @@ bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
 # --- РЕГИСТРАЦИЯ РОУТЕРОВ ---
-# Регистрируем роутеры с КОНКРЕТНЫМИ командами и кнопками.
-# Порядок этих двух роутеров теперь не так критичен, но так логичнее.
-dp.include_router(main_handlers_router)
+# ===== ВАЖНО: УСТАНОВЛЕН ПРАВИЛЬНЫЙ И ФИНАЛЬНЫЙ ПОРЯДОК =====
+# 1. Роутер поддержки. Он ловит специфичные состояния FSM и прямые диалоги.
 dp.include_router(support_router)
 
-# --- ОБРАБОТЧИК ПО УМОЛЧАНИЮ (FALLBACK) ---
-# Этот обработчик регистрируется ПОСЛЕДНИМ и напрямую в диспетчере.
-# Он сработает, только если сообщение не было поймано ни в одном из роутеров выше.
-@dp.message()
-async def fallback_handler(message: types.Message):
-    # Игнорируем сообщения в чате поддержки
-    if message.chat.id == SUPPORT_TICKETS_CHAT_ID:
-        return
-        
-    logging.warning(f"Неизвестный запрос от {message.from_user.id}: {message.text or '[нетекстовое сообщение]'}")
-    await message.answer(
-        "🤖 Я не совсем понял ваш запрос.\n\n"
-        "Пожалуйста, воспользуйтесь кнопками в меню.\n"
-        "Если вы хотите задать вопрос нашей поддержке, нажмите кнопку '❓ Задать вопрос'.",
-        reply_markup=get_start_keyboard()
-    )
-
+# 2. Роутер с основными командами и fallback.
+# Он сработает, только если сообщение не было обработано в support_router.
+# Его fallback сработает в самом конце.
+dp.include_router(main_handlers_router)
 
 # --- Функции запуска ---
 async def on_startup(bot: Bot):
