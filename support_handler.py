@@ -1,4 +1,4 @@
-# support_handler.py (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+# support_handler.py (ФИНАЛЬНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ)
 import logging
 import asyncio
 from datetime import datetime
@@ -7,7 +7,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from keyboard import get_back_to_menu_keyboard, get_start_keyboard, get_end_dialog_keyboard
-# ===== ИСПРАВЛЕНИЕ ЗДЕСЬ: Добавлена переменная END_DIALOG_BUTTON_TEXT =====
 from constants import SUPPORT_BUTTON_TEXT, KNOWN_BUTTONS, END_DIALOG_BUTTON_TEXT
 
 # --- КОНФИГУРАЦИЯ ---
@@ -45,21 +44,18 @@ async def _end_dialog(user_id: int, bot: Bot, reason: str = "Диалог зав
     if user_id not in active_dialogs:
         return
 
-    support_agent_id = active_dialogs.get(user_id) # .get() для безопасности
+    support_agent_id = active_dialogs.get(user_id)
     
-    # 1. Отменяем задачу тайм-аута, если она есть
     if user_id in timeout_tasks:
         timeout_tasks[user_id].cancel()
         del timeout_tasks[user_id]
         logging.info(f"Задача тайм-аута для пользователя {user_id} отменена.")
 
-    # 2. Удаляем из словарей
     if user_id in active_dialogs:
         del active_dialogs[user_id]
     if support_agent_id and support_agent_id in support_to_user_map:
         del support_to_user_map[support_agent_id]
 
-    # 3. Отправляем уведомления
     try:
         await bot.send_message(user_id, f"❗️ {reason}\n\nЕсли у вас остались вопросы, вы можете задать их снова.", reply_markup=get_start_keyboard())
         if support_agent_id:
@@ -106,7 +102,6 @@ async def process_first_question(message: types.Message, state: FSMContext, bot:
     user = message.from_user
     ticket_id = f"T-{user.id}-{datetime.now().strftime('%H%M')}"
     await state.update_data(ticket_id=ticket_id)
-
     ticket_caption = (
         f"🎫 <b>Новое обращение #{ticket_id}</b>\n\n"
         f"👤 <b>Клиент:</b> {user.full_name}\n"
@@ -115,16 +110,9 @@ async def process_first_question(message: types.Message, state: FSMContext, bot:
     )
     try:
         start_dialog_button = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text="💬 Начать диалог с клиентом",
-                callback_data=f"start_dialog:{user.id}:{ticket_id}"
-            )]
+            [InlineKeyboardButton(text="💬 Начать диалог с клиентом", callback_data=f"start_dialog:{user.id}:{ticket_id}")]
         ])
-        await bot.send_message(
-            SUPPORT_TICKETS_CHAT_ID, 
-            ticket_caption,
-            reply_markup=start_dialog_button
-        )
+        await bot.send_message(SUPPORT_TICKETS_CHAT_ID, ticket_caption, reply_markup=start_dialog_button)
         await message.copy_to(chat_id=SUPPORT_TICKETS_CHAT_ID)
         await message.answer(QUICK_RESPONSE_FIRST)
         await state.set_state(SupportConversation.waiting_for_additional_info)
@@ -136,26 +124,19 @@ async def process_first_question(message: types.Message, state: FSMContext, bot:
         await state.clear()
 
 # 3. ДОПОЛНИТЕЛЬНАЯ ИНФОРМАЦИЯ ОТ КЛИЕНТА
-@router.message(
-    SupportConversation.waiting_for_additional_info,
-    lambda message: message.text not in KNOWN_BUTTONS
-)
+@router.message(SupportConversation.waiting_for_additional_info, lambda message: message.text not in KNOWN_BUTTONS)
 async def process_additional_info(message: types.Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     ticket_id = data.get('ticket_id', 'N/A')
     try:
-        await bot.send_message(
-            SUPPORT_TICKETS_CHAT_ID,
-            f"📎 <b>Дополнение к тикету #{ticket_id}</b>"
-        )
+        await bot.send_message(SUPPORT_TICKETS_CHAT_ID, f"📎 <b>Дополнение к тикету #{ticket_id}</b>")
         await message.copy_to(chat_id=SUPPORT_TICKETS_CHAT_ID)
         await message.answer(QUICK_RESPONSE_SECOND)
-        logging.info(f"Получена доп. информация по тикету {ticket_id}. Пользователь остается в состоянии ожидания.")
+        logging.info(f"Получена доп. информация по тикету {ticket_id}.")
     except Exception as e:
         logging.error(f"Не удалось переслать доп. инфо по тикету #{ticket_id}: {e}")
         await bot.send_message(ADMIN_USER_ID, f"Ошибка пересылки доп. инфо для {ticket_id}: {e}")
-        await message.answer("Не удалось отправить дополнительную информацию. Специалист скоро свяжется с вами по основному вопросу.")
-
+        await message.answer("Не удалось отправить дополнительную информацию.")
 
 # 4. СОТРУДНИК НАЧИНАЕТ ДИАЛОГ
 @router.callback_query(F.data.startswith("start_dialog:"))
@@ -182,16 +163,18 @@ async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot, dispatche
     logging.info(f"Запущена задача тайм-аута для пользователя {user_id}.")
     
     await callback.message.edit_text(
-        f"{callback.message.html_text}\n\n"
-        f"✅ <b>В работе у:</b> {support_agent.full_name} (@{support_agent.username or ''})",
+        f"{callback.message.html_text}\n\n✅ <b>В работе у:</b> {support_agent.full_name} (@{support_agent.username or ''})",
         reply_markup=None
     )
     
+    # ===== КЛЮЧЕВАЯ СТРОКА, КОТОРАЯ ОТПРАВЛЯЕТ КНОПКУ ПОЛЬЗОВАТЕЛЮ =====
     await bot.send_message(
         user_id,
         "👨‍💼 Здравствуйте! С вами на связи специалист поддержки. Теперь вы можете задать все уточняющие вопросы здесь.",
         reply_markup=get_end_dialog_keyboard()
     )
+    # ===================================================================
+    
     await bot.send_message(
         support_agent.id,
         f"Вы начали диалог с клиентом по тикету #{ticket_id}.\n"
@@ -213,38 +196,30 @@ async def user_ends_dialog(message: types.Message, bot: Bot):
 
 
 # 6. ОСНОВНАЯ ЛОГИКА ПЕРЕСЫЛКИ
-@router.message(
-    lambda message: (
-        message.from_user.id in active_dialogs or message.from_user.id in support_to_user_map
-    ) and message.chat.id != SUPPORT_TICKETS_CHAT_ID
-)
+@router.message(lambda message: (message.from_user.id in active_dialogs or message.from_user.id in support_to_user_map) and message.chat.id != SUPPORT_TICKETS_CHAT_ID)
 async def message_relay(message: types.Message, bot: Bot):
     sender_id = message.from_user.id
-
     if sender_id in active_dialogs:
         if sender_id in timeout_tasks:
             timeout_tasks[sender_id].cancel()
         task = asyncio.create_task(_dialog_timeout_watcher(sender_id, bot))
         timeout_tasks[sender_id] = task
         logging.info(f"Активность от пользователя {sender_id}. Таймер тайм-аута перезапущен.")
-        
         recipient_id = active_dialogs[sender_id]
         try:
             await message.copy_to(chat_id=recipient_id)
         except Exception as e:
             logging.error(f"Ошибка пересылки от клиента ({sender_id}) специалисту ({recipient_id}): {e}")
-            await message.answer("Не удалось доставить ваше сообщение специалисту. Пожалуйста, попробуйте еще раз.")
+            await message.answer("Не удалось доставить ваше сообщение специалисту.")
         return
-
     elif sender_id in support_to_user_map:
         user_id = support_to_user_map[sender_id]
         if message.text and message.text.lower().startswith('/end'):
             await _end_dialog(user_id, bot, reason="Диалог завершен специалистом.")
             return
-
         try:
             await message.copy_to(chat_id=user_id)
         except Exception as e:
             logging.error(f"Ошибка пересылки от специалиста ({sender_id}) клиенту ({user_id}): {e}")
-            await message.answer("Не удалось доставить ваше сообщение клиенту. Возможно, он заблокировал бота или произошла ошибка.")
+            await message.answer("Не удалось доставить ваше сообщение клиенту.")
         return
