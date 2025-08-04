@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 from aiogram import Bot, Dispatcher, types, F
+from aiogram.client.default import DefaultBotProperties # <-- ИЗМЕНЕНИЕ: Импорт добавлен
 from aiogram.filters.command import Command
 from aiogram.types import ReplyKeyboardRemove
 from dotenv import load_dotenv
@@ -23,7 +24,8 @@ if not BOT_TOKEN:
 logging.basicConfig(level=logging.INFO)
 
 # --- Инициализация бота и диспетчера ---
-bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
+# ИЗМЕНЕНИЕ: Инициализация бота исправлена в соответствии с новой версией aiogram
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
 # --- Подключение роутеров ---
@@ -59,14 +61,13 @@ async def show_shop_addresses(message: types.Message):
 @dp.message(F.text == "🎁 Актуальные акции")
 async def handle_promotions(message: types.Message):
     # Здесь можно разместить код для отправки акций
-    # Для примера, используем ваш существующий метод
-    # await send_random_ad(bot) # Если хотите всем
-    # await send_ad_to_user(bot, message.from_user.id) # Если конкретному пользователю
     await message.answer("В данный момент активных акций нет. Следите за обновлениями!")
 
 @dp.callback_query(F.data == "open_main")
 async def process_open_main(callback: types.CallbackQuery):
-    await callback.message.edit_reply_markup(reply_markup=None) # Убираем инлайн кнопку
+    # Проверяем, есть ли у сообщения инлайн-клавиатура, прежде чем удалять
+    if callback.message.reply_markup:
+        await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(
         "Вы вернулись в главное меню.",
         reply_markup=get_start_keyboard()
