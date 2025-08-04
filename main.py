@@ -1,4 +1,4 @@
-# main.py (ПОЛНОСТЬЮ ЗАМЕНИТЬ)
+# main.py (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 import asyncio
 import logging
 import os
@@ -6,7 +6,6 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
-# Локальные импорты - теперь импортируем роутеры
 from support_handler import router as support_router
 from main_handlers import router as main_handlers_router
 import keep_alive
@@ -24,12 +23,14 @@ bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
 # --- РЕГИСТРАЦИЯ РОУТЕРОВ ---
-# ПОРЯДОК ОЧЕНЬ ВАЖЕН!
-# Сначала идут роутеры с более специфичными командами.
-# Роутер с "fallback" (обработчиком по умолчанию) должен быть ПОСЛЕДНИМ.
-dp.include_router(support_router)
+# ===== ВАЖНО: ПОРЯДОК ИЗМЕНЕН НА ПРАВИЛЬНЫЙ =====
+# Сначала регистрируем роутер с главными кнопками.
+# Он будет иметь приоритет и сможет "перехватывать" нажатия кнопок у пользователей в любом состоянии.
 dp.include_router(main_handlers_router)
- # Этот роутер содержит fallback и должен идти после всех остальных
+
+# Роутер поддержки идет вторым. Его обработчик состояния сработает только если
+# сообщение не подошло ни под один из фильтров в main_handlers_router.
+dp.include_router(support_router)
 
 # --- Функции запуска ---
 async def on_startup(bot: Bot):
