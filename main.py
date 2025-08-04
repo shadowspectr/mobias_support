@@ -27,8 +27,9 @@ dp = Dispatcher()
 # ПОРЯДОК ОЧЕНЬ ВАЖЕН!
 # Сначала идут роутеры с более специфичными командами.
 # Роутер с "fallback" (обработчиком по умолчанию) должен быть ПОСЛЕДНИМ.
+dp.include_router(support_router)
 dp.include_router(main_handlers_router)
-dp.include_router(support_router) # Этот роутер содержит fallback и должен идти после всех остальных
+ # Этот роутер содержит fallback и должен идти после всех остальных
 
 # --- Функции запуска ---
 async def on_startup(bot: Bot):
