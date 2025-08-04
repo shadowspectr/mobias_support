@@ -1,4 +1,4 @@
-# support_handler.py (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+# support_handler.py (ФИНАЛЬНАЯ ВЕРСИЯ)
 import logging
 from datetime import datetime
 from aiogram import Router, types, Bot, F
@@ -34,7 +34,7 @@ support_to_user_map = {}
 router = Router()
 
 
-# 1. НАЧАЛО ДИАЛОГА: Пользователь нажимает кнопку "Задать вопрос"
+# 1. НАЧАЛО ДИАЛОГА
 @router.message(F.text == "❓ Задать вопрос")
 async def start_support_dialog(message: types.Message, state: FSMContext):
     if message.from_user.id in active_dialogs:
@@ -48,7 +48,7 @@ async def start_support_dialog(message: types.Message, state: FSMContext):
     await state.set_state(SupportConversation.waiting_for_first_message)
 
 
-# 2. ПЕРВОЕ СООБЩЕНИЕ ОТ КЛИЕНТА (ИСПРАВЛЕНО)
+# 2. ПЕРВОЕ СООБЩЕНИЕ ОТ КЛИЕНТА
 @router.message(SupportConversation.waiting_for_first_message)
 async def process_first_question(message: types.Message, state: FSMContext, bot: Bot):
     user = message.from_user
@@ -68,19 +68,12 @@ async def process_first_question(message: types.Message, state: FSMContext, bot:
                 callback_data=f"start_dialog:{user.id}:{ticket_id}"
             )]
         ])
-        
-        # ===== ИЗМЕНЕНИЕ 1: Отправляем сообщение с тикетом И КНОПКОЙ =====
-        # Теперь кнопка всегда будет на сообщении с текстом, которое можно редактировать.
         await bot.send_message(
             SUPPORT_TICKETS_CHAT_ID, 
             ticket_caption,
             reply_markup=start_dialog_button
         )
-        
-        # ===== ИЗМЕНЕНИЕ 2: Копируем сообщение от пользователя БЕЗ кнопки =====
-        # Это просто контекст для специалиста.
         await message.copy_to(chat_id=SUPPORT_TICKETS_CHAT_ID)
-        
         await message.answer(QUICK_RESPONSE_FIRST)
         await state.set_state(SupportConversation.waiting_for_additional_info)
         logging.info(f"Создан тикет {ticket_id} для пользователя {user.id}")
@@ -111,7 +104,7 @@ async def process_additional_info(message: types.Message, state: FSMContext, bot
     await state.clear()
 
 
-# 4. СОТРУДНИК НАЧИНАЕТ ДИАЛОГ (ИСПРАВЛЕНО)
+# 4. СОТРУДНИК НАЧИНАЕТ ДИАЛОГ
 @router.callback_query(F.data.startswith("start_dialog:"))
 async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot):
     _, user_id_str, ticket_id = callback.data.split(":")
@@ -129,12 +122,10 @@ async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot):
     support_to_user_map[support_agent.id] = user_id
     logging.info(f"Установлена связь: Клиент {user_id} <-> Специалист {support_agent.id} (Тикет {ticket_id})")
     
-    # ===== ИЗМЕНЕНИЕ 3: Логика редактирования теперь надежна =====
-    # Мы знаем, что callback.message - это наше сообщение с текстом, поэтому ошибка исключена.
     await callback.message.edit_text(
         f"{callback.message.html_text}\n\n"
         f"✅ <b>В работе у:</b> {support_agent.full_name} (@{support_agent.username or ''})",
-        reply_markup=None # Убираем кнопку, чтобы ее не нажал кто-то еще
+        reply_markup=None
     )
     
     await bot.send_message(
@@ -151,10 +142,18 @@ async def handle_start_dialog(callback: types.CallbackQuery, bot: Bot):
 
 
 # 5. ОСНОВНАЯ ЛОГИКА ПЕРЕСЫЛКИ СООБЩЕНИЙ
-@router.message(lambda message: message.from_user.id in active_dialogs or message.from_user.id in support_to_user_map)
+# ===== КЛЮЧЕВОЕ ИЗМЕНЕНИЕ =====
+# Добавлено условие: and message.chat.id != SUPPORT_TICKETS_CHAT_ID
+# Теперь этот обработчик ПОЛНОСТЬЮ игнорирует сообщения, написанные в группе поддержки.
+@router.message(
+    lambda message: (
+        message.from_user.id in active_dialogs or message.from_user.id in support_to_user_map
+    ) and message.chat.id != SUPPORT_TICKETS_CHAT_ID
+)
 async def message_relay(message: types.Message, bot: Bot):
     sender_id = message.from_user.id
 
+    # Сценарий 1: Сообщение от клиента -> специалисту
     if sender_id in active_dialogs:
         recipient_id = active_dialogs[sender_id]
         try:
@@ -164,8 +163,10 @@ async def message_relay(message: types.Message, bot: Bot):
             await message.answer("Не удалось доставить ваше сообщение специалисту. Пожалуйста, попробуйте еще раз.")
         return
 
+    # Сценарий 2: Сообщение от специалиста -> клиенту
     elif sender_id in support_to_user_map:
         recipient_id = support_to_user_map[sender_id]
+        # Проверка команды завершения
         if message.text and message.text.lower().startswith('/end'):
             logging.info(f"Специалист {sender_id} завершает диалог с клиентом {recipient_id}.")
             del active_dialogs[recipient_id]
@@ -173,6 +174,7 @@ async def message_relay(message: types.Message, bot: Bot):
             await bot.send_message(recipient_id, "Диалог со специалистом поддержки завершен. Спасибо за обращение!", reply_markup=get_start_keyboard())
             await message.answer("Вы успешно завершили диалог. Чтобы взять новый тикет, перейдите в группу.")
             return
+        # Пересылка обычного сообщения
         try:
             await message.copy_to(chat_id=recipient_id)
         except Exception as e:
